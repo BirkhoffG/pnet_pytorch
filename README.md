@@ -1,5 +1,11 @@
 # privacy_hidden_representations
 
+## Train the model
+```
+python -m src.main -b 128
+```
+
+
 **Privacy preserving ML for NLP tasks**
 
 

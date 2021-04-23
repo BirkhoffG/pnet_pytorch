@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 """
 Created on Thu Dec 13 14:13:02 2018
-
-@author: piesauce
+@author: piesauce, birkhoffg
 """
 import torch
 import torch.nn as nn
 from torch.autograd import Variable
+import torch.nn.functional as F
 
 
 class MainClassifier(nn.Module):
@@ -35,44 +35,49 @@ class MainClassifier(nn.Module):
         
         self.word_hidden_dim = args.word_hidden_dim
         self.word_embedding = nn.Embedding(vocab_size, args.word_embed_dim)
-        self.bilstm = nn.LSTM(args.word_embed_dim + self.char_hidden_dim * 2, self.word_hidden_dim, bidirectional=True)
+        self.bilstm = nn.LSTM(args.word_embed_dim, self.word_hidden_dim, bidirectional=True)
+        # self.bilstm = nn.LSTM(args.word_embed_dim + self.char_hidden_dim * 2, self.word_hidden_dim, bidirectional=True)
         self.fc1 = nn.Linear(self.word_hidden_dim * 2,  args.fc_dim)
         self.relu = nn.ReLU()
         self.fc2 = nn.Linear(args.fc_dim, output_size)
-        self.softmax = nn.Softmax()
+        self.softmax = nn.Softmax(dim=-1)
+
+        self.hidden_size = self.word_hidden_dim * 2
     
-    def forward(self, sentence):
+    def forward(self, sentence, adversary=False):
         """
         Args:
             sentence (list): Input sentence, consisting of a tuple (sentence_c, sentence_w)
-            sentence_c contains the character indices of the input sentence.
-            sentence_w contains the word indices of the input sentence.
+                - (currently disabled) sentence_c contains the character indices of the input sentence.
+                - sentence_w contains the word indices of the input sentence.
+            adversary (bool): return intermediate encoding or softmax output 
         Returns:
             if adversary, returns intermediate encoding
             if not adversary, returns softmax output
         """
-        sentence_c, sentence_w, adversary = sentence
-        c_lstm_hidden = []
+        # sentence_c, sentence_w = sentence
+        # c_lstm_hidden = []
         
+        # for token in sentence_c:
+        #     token = torch.tensor(token)
+        #     h_c = torch.zeros(2, 1, self.char_hidden_dim)
+        #     c_c = torch.zeros(2, 1, self.char_hidden_dim)
+        #     # print("token: ", token)
+        #     char_embed = self.char_embedding(token).view(len(token), 1, -1)
+        #     _ , (hidden_state, cell_state) = self.char_bilstm(char_embed, (h_c, c_c))
+        #     hidden_state = hidden_state.view(-1, self.char_hidden_dim * 2)
+        #     c_lstm_hidden.append(hidden_state)
+        # c_lstm_hidden = torch.stack(c_lstm_hidden)
         
-        for token in sentence_c:
-            token = torch.tensor(token)
-            h_c = Variable(torch.zeros(2, 1, self.char_hidden_dim))
-            c_c = Variable(torch.zeros(2, 1, self.char_hidden_dim))
-            
-            char_embed = self.char_embedding(token).view(len(token), 1, -1)
-            _ , (hidden_state, cell_state) = self.char_bilstm(char_embed, (h_c, c_c))
-            hidden_state = hidden_state.view(-1, self.char_hidden_dim * 2)
-            c_lstm_hidden.append(hidden_state)
-        c_lstm_hidden = torch.stack(c_lstm_hidden)
-        
-        
+        # sentence_w = torch.tensor(sentence_w)
+        sentence_w = sentence
         word_embed = self.word_embedding(sentence_w).view(len(sentence_w), 1, -1)
         
-        wc_embed = torch.cat((word_embed, c_lstm_hidden), 2)
+        # wc_embed = torch.cat((word_embed, c_lstm_hidden), 2)
+        wc_embed = word_embed
         
-        h_w = Variable(torch.zeros(2, 1, self.word_hidden_dim))
-        c_w = Variable(torch.zeros(2, 1, self.word_hidden_dim))
+        h_w = torch.zeros(2, 1, self.word_hidden_dim)
+        c_w = torch.zeros(2, 1, self.word_hidden_dim)
         _ , (hidden_state, cell_state) = self.bilstm(wc_embed, (h_w, c_w))
         hidden_state = hidden_state.view(-1, self.word_hidden_dim * 2)
         
@@ -83,7 +88,18 @@ class MainClassifier(nn.Module):
         fc_output = self.relu(fc_output)
         fc_output = self.fc2(fc_output)
         fc_output = self.softmax(fc_output)
+
         return fc_output
+
+    def get_loss(self, sentence, target):
+        return F.nll_loss(self(sentence), torch.tensor([target]))
+
+    def get_prediction(self, sentence):
+        return torch.argmax(self(sentence))
+
+    def get_loss_prediction(self, sentence, target):
+        output = self(sentence)
+        return F.nll_loss(output, torch.tensor([target])), torch.argmax(output)
     
 
 class AdversaryClassifier(nn.Module):
@@ -99,7 +115,7 @@ class AdversaryClassifier(nn.Module):
             args: Command-line arguments
         """
         super(AdversaryClassifier, self).__init__()
-        self.fc1 = nn.Linear(self.hidden_state_size,  args.fc_dim)
+        self.fc1 = nn.Linear(hidden_state_size,  args.fc_dim)
         self.relu = nn.ReLU()
         self.fc2 = nn.Linear(args.fc_dim, output_size)
         self.softmax = nn.Softmax()
@@ -114,8 +130,3 @@ class AdversaryClassifier(nn.Module):
         fc_output = self.fc2(fc_output)
         fc_output = self.softmax(fc_output)
         return fc_output
-    
-    
-    
-    
-    
