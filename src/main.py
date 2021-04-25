@@ -63,11 +63,12 @@ class PrModel:
         loss = 0
         acc = 0
         tot = len(dataset)
-        for i, (input_vec, target) in enumerate(dataset):
+        data_loader = DataLoader(dataset, batch_size=args.batch_size)
+
+        for i, (input_vec, target) in enumerate(data_loader):
             l, p = self.main_classifier.get_loss_prediction(input_vec, target)
             loss += l.item()
-            if p == target:
-                acc += 1
+            acc += sum(p == target).item()
         return loss / tot, acc / tot * 100
 
 
@@ -75,8 +76,8 @@ class PrModel:
         lr = self.args.learning_rate
         batch_size = self.args.batch_size
 
-        train_dataset = PrDataset(train, self.vocabulary)
-        val_dataset = PrDataset(dev, self.vocabulary)
+        train_dataset = PrDataset(train, self.vocabulary, args)
+        val_dataset = PrDataset(dev, self.vocabulary, args)
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 
         optimizer = optim.AdamW(self.main_classifier.parameters(), lr=lr)
@@ -87,19 +88,17 @@ class PrModel:
 
         for i in range(self.args.iterations):    
 
-            train_dataset.shuffle()
+            # train_dataset.shuffle()
             self.main_classifier.train()
 
-            for _i, (input_vec, target) in enumerate(tqdm(train_dataset)):
+            for _i, (input_vec, target) in enumerate(tqdm(train_loader)):
                 # sys.stderr.write("\r{}%".format(_i / len(train_dataset) * 100))
                 
                 loss = self.main_classifier.get_loss(input_vec, target)
                 loss.backward()
 
-                # mimic batching
-                if (_i + 1) % batch_size == 0:
-                    optimizer.step()
-                    optimizer.zero_grad()
+                optimizer.step()
+                optimizer.zero_grad()
 
                 # if self.args.ptraining:
                 #     self.privacy_train(example, train)
@@ -111,7 +110,7 @@ class PrModel:
                 #     generator_loss += self.generator_train(example)
             
             l, acc = self.evaluate_main(val_dataset)
-            print(f"[epoch={i+1}] loss: {l}, acc: {acc}")
+            print(f"[epoch={i+1}] loss: {l}, acc: {acc}%")
             
         
     def train_adversarial(self, train, dev):
@@ -154,7 +153,7 @@ if __name__ == "__main__":
     import os
     random.seed(10)
     np.random.seed(10)
-    torch.manual_seed(0)
+    torch.manual_seed(10)
     
     usage = """Implements the privacy evaluation protocol described in the article.
 
@@ -169,8 +168,8 @@ if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description = usage, formatter_class=argparse.RawTextHelpFormatter)
     
-    parser.add_argument("--learning-rate", "-b", type=float, default=0.1)
-    parser.add_argument("--batch-size", type=int, default=256)
+    parser.add_argument("--learning-rate", "-lr", type=float, default=0.1)
+    parser.add_argument("--batch-size", "-b", type=int, default=256)
     parser.add_argument("--iterations", "-i", type=int, default=20, help="Number of training iterations")
     
 
@@ -181,6 +180,8 @@ if __name__ == "__main__":
     parser.add_argument("--word-hidden-dim","-W", type=int, default=50, help="Dimension of word lstm")
 
     parser.add_argument("--fc-dim","-l", type=int, default=50, help="Dimension of hidden layers")
+
+    parser.add_argument("--seq_len", default=80, help="Sequence length")
     
     args = parser.parse_args()
 

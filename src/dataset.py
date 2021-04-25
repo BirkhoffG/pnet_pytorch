@@ -28,18 +28,22 @@ from sklearn.utils import shuffle
 #         self.dataset = shuffle(self.dataset)
 
 class PrDataset(Dataset):
-    def __init__(self, examples: List[Example], voc: Vocabulary) -> None:
+    def __init__(self, examples: List[Example], voc: Vocabulary, args) -> None:
         super().__init__()
         self.vocabulary = voc
         self.dataset = examples
+        self.seq_len = args.seq_len
 
     def _get_input(self, sentence):
         return self.vocabulary.code_sentence_cw(sentence)
-
+    
     def __getitem__(self, index):
         # TODO: padding the training sequences
         example = self.dataset[index]
-        input_vec = self.vocabulary.code_sentence_w(example.get_sentence())
+        sentence = example.get_sentence()
+        sentence = sentence[:self.seq_len]
+        sentence = sentence + ['PAD' for _ in range(len(sentence), self.seq_len)]
+        input_vec = self.vocabulary.code_sentence_w(sentence)
         target = example.get_label()
         return torch.tensor(input_vec), torch.tensor([target])
     
