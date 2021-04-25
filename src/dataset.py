@@ -28,10 +28,11 @@ from sklearn.utils import shuffle
 #         self.dataset = shuffle(self.dataset)
 
 class PrDataset(Dataset):
-    def __init__(self, examples: List[Example], voc: Vocabulary) -> None:
+    def __init__(self, examples: List[Example], voc: Vocabulary, args) -> None:
         super().__init__()
         self.vocabulary = voc
         self.dataset = examples
+        self.seq_len = args.seq_len
 
     def _get_input(self, sentence):
         return self.vocabulary.code_sentence_cw(sentence)

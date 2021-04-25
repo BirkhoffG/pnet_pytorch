@@ -35,7 +35,7 @@ class MainClassifier(nn.Module):
         
         self.word_hidden_dim = args.word_hidden_dim
         self.word_embedding = nn.Embedding(vocab_size, args.word_embed_dim)
-        self.bilstm = nn.LSTM(args.word_embed_dim, self.word_hidden_dim, bidirectional=True)
+        self.bilstm = nn.LSTM(args.word_embed_dim, self.word_hidden_dim, bidirectional=True, batch_first=True)
         # self.bilstm = nn.LSTM(args.word_embed_dim + self.char_hidden_dim * 2, self.word_hidden_dim, bidirectional=True)
         self.fc1 = nn.Linear(self.word_hidden_dim * 2,  args.fc_dim)
         self.relu = nn.ReLU()
@@ -71,13 +71,14 @@ class MainClassifier(nn.Module):
         
         # sentence_w = torch.tensor(sentence_w)
         sentence_w = sentence
-        word_embed = self.word_embedding(sentence_w).view(len(sentence_w), 1, -1)
+        # (batch, seq_len, embedding_size)
+        word_embed = self.word_embedding(sentence_w)#.view(len(sentence_w), 1, -1)
         
         # wc_embed = torch.cat((word_embed, c_lstm_hidden), 2)
         wc_embed = word_embed
         
-        h_w = torch.zeros(2, 1, self.word_hidden_dim)
-        c_w = torch.zeros(2, 1, self.word_hidden_dim)
+        h_w = torch.zeros(2, 1 * word_embed.size(0), self.word_hidden_dim)
+        c_w = torch.zeros(2, 1 * word_embed.size(0), self.word_hidden_dim)
         _ , (hidden_state, cell_state) = self.bilstm(wc_embed, (h_w, c_w))
         hidden_state = hidden_state.view(-1, self.word_hidden_dim * 2)
         
@@ -92,14 +93,14 @@ class MainClassifier(nn.Module):
         return fc_output
 
     def get_loss(self, sentence, target):
-        return F.nll_loss(self(sentence), torch.tensor([target]))
+        return F.nll_loss(self(sentence), target.view(-1))
 
     def get_prediction(self, sentence):
         return torch.argmax(self(sentence))
 
     def get_loss_prediction(self, sentence, target):
         output = self(sentence)
-        return F.nll_loss(output, torch.tensor([target])), torch.argmax(output)
+        return F.nll_loss(output, target.view(-1)), torch.argmax(output)
     
 
 class AdversaryClassifier(nn.Module):
