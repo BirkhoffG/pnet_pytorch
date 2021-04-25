@@ -35,7 +35,7 @@ class MainClassifier(nn.Module):
         
         self.word_hidden_dim = args.word_hidden_dim
         self.word_embedding = nn.Embedding(vocab_size, args.word_embed_dim)
-        self.bilstm = nn.LSTM(args.word_embed_dim, self.word_hidden_dim, bidirectional=True, batch_first=True)
+        self.bilstm = nn.LSTM(args.word_embed_dim, self.word_hidden_dim, bidirectional=True)
         # self.bilstm = nn.LSTM(args.word_embed_dim + self.char_hidden_dim * 2, self.word_hidden_dim, bidirectional=True)
         self.fc1 = nn.Linear(self.word_hidden_dim * 2,  args.fc_dim)
         self.relu = nn.ReLU()
@@ -43,6 +43,9 @@ class MainClassifier(nn.Module):
         self.softmax = nn.Softmax(dim=-1)
 
         self.hidden_size = self.word_hidden_dim * 2
+        self.seq_len = args.seq_len
+        self.batch_size = args.batch_size
+        self.device = args.device
     
     def forward(self, sentence, adversary=False):
         """
@@ -70,37 +73,59 @@ class MainClassifier(nn.Module):
         # c_lstm_hidden = torch.stack(c_lstm_hidden)
         
         # sentence_w = torch.tensor(sentence_w)
-        sentence_w = sentence
-        # (batch, seq_len, embedding_size)
-        word_embed = self.word_embedding(sentence_w)#.view(len(sentence_w), 1, -1)
-        
+#         print('sentence',sentence.shape)
+#         sentence_w = sentence
+#         if len(sentence_w.shape) == 1:
+#             sentence_w = sentence_w.view(1, sentence_w.shape[0])
+#         print('sentence_w',sentence_w.shape)
+#         word_embed = self.word_embedding(sentence_w).transpose(0,1)#.view(sentence_w.shape[1], sentence_w.shape[0], -1)
+#         print('word_embed',word_embed.shape)
         # wc_embed = torch.cat((word_embed, c_lstm_hidden), 2)
-        wc_embed = word_embed
         
-        h_w = torch.zeros(2, 1 * word_embed.size(0), self.word_hidden_dim)
-        c_w = torch.zeros(2, 1 * word_embed.size(0), self.word_hidden_dim)
-        _ , (hidden_state, cell_state) = self.bilstm(wc_embed, (h_w, c_w))
-        hidden_state = hidden_state.view(-1, self.word_hidden_dim * 2)
+        last_hidden_state = self.get_lstm_embed(sentence)
         
         if adversary:
-            return hidden_state
+            return last_hidden_state
         
-        fc_output = self.fc1(hidden_state)
+        fc_output = self.fc1(last_hidden_state)
         fc_output = self.relu(fc_output)
         fc_output = self.fc2(fc_output)
         fc_output = self.softmax(fc_output)
-
+#         print('fc_output',fc_output.shape)
         return fc_output
 
+    def get_lstm_embed(self, sentence):
+        if len(sentence.shape) == 1:
+            sentence = sentence.view(1, sentence.shape[0])
+        word_embed = self.word_embedding(sentence).transpose(0,1)#.view(sentence_w.shape[1], sentence_w.shape[0], -1)
+        
+        h_w = torch.zeros(2, sentence.shape[0], self.word_hidden_dim).to(self.device)
+        c_w = torch.zeros(2, sentence.shape[0], self.word_hidden_dim).to(self.device)
+        
+        _ , (hidden_state, cell_state) = self.bilstm(word_embed, (h_w, c_w))
+        
+        last_hidden_state = hidden_state[-2:].view(-1, self.word_hidden_dim * 2)
+        
+        return last_hidden_state
+    
     def get_loss(self, sentence, target):
-        return F.nll_loss(self(sentence), target.view(-1))
+        if len(sentence.shape) == 1: 
+            return F.nll_loss(self(sentence), torch.tensor([target]))
+        else:
+            return F.nll_loss(self(sentence), target.view(-1))
 
     def get_prediction(self, sentence):
-        return torch.argmax(self(sentence))
+        if len(sentence.shape) == 1:
+            return torch.argmax(self(sentence))
+        else: 
+            return torch.argmax(self(sentence), dim=1)
 
     def get_loss_prediction(self, sentence, target):
         output = self(sentence)
-        return F.nll_loss(output, target.view(-1)), torch.argmax(output)
+        if len(sentence.shape) == 1: 
+            return F.nll_loss(output, torch.tensor([target])), torch.argmax(output)
+        else: 
+            return F.nll_loss(output, target.view(-1)), torch.argmax(output, dim=1)
     
 
 class AdversaryClassifier(nn.Module):
@@ -119,7 +144,8 @@ class AdversaryClassifier(nn.Module):
         self.fc1 = nn.Linear(hidden_state_size,  args.fc_dim)
         self.relu = nn.ReLU()
         self.fc2 = nn.Linear(args.fc_dim, output_size)
-        self.softmax = nn.Softmax()
+        self.sigmoid = nn.Sigmoid()
+        self.output_size = output_size
     
     def forward(self, hidden_state):
         """
@@ -129,5 +155,27 @@ class AdversaryClassifier(nn.Module):
         fc_output = self.fc1(hidden_state)
         fc_output = self.relu(fc_output)
         fc_output = self.fc2(fc_output)
-        fc_output = self.softmax(fc_output)
+        fc_output = self.sigmoid(fc_output)
         return fc_output
+    
+    def get_loss(self, hidden_state, target):
+        output = self(hidden_state)  
+        loss_function = nn.BCEWithLogitsLoss()
+        return loss_function(output, target.float())
+        
+    def get_prediction(self, hidden_state):
+        output = self(hidden_state)
+        prediction = output.cpu().clone()
+        prediction[prediction>=0.5] = 1
+        prediction[prediction<0.5] = 0
+        return prediction
+
+    def get_loss_prediction(self, hidden_state, target):
+        output = self(hidden_state) 
+#         print('output', output[0])
+#         print('target', target[0])
+        prediction = output.cpu().clone()
+        prediction[prediction>=0.5] = 1
+        prediction[prediction<0.5] = 0
+        loss_function = nn.BCEWithLogitsLoss()
+        return loss_function(output, target.float()), prediction
