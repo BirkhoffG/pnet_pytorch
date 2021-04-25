@@ -3,26 +3,27 @@ import numpy as np
 
 
 ALPHA = 0.8375  # stochastic replacement constant
+PAD = "<PAD>"
 UNK = "<UNK>"
 UNDEF = "<UNDEF>"
 START = "START"
 STOP = "STOP"
 
-UNK_I, UNDEF_I, START_I, STOP_I = list(range(4))
+PAD_I, UNK_I, UNDEF_I, START_I, STOP_I = list(range(0, 5))
 
 class Vocabulary:
 
     def __init__(self, word_freqs):
 
         self.word_freqs = word_freqs
-        self.words = [UNK, UNDEF, START, STOP] + sorted(word_freqs)
+        self.words = [PAD, UNK, UNDEF, START, STOP] + sorted(word_freqs)
         self.w2i = {w: i for i, w in enumerate(self.words)}
 
         self.c2i = {}
         self.chars = set()
         for w in self.words:
             self.chars |= set(w)
-        self.chars = [UNK, UNDEF, START, STOP] + sorted(self.chars) + [" "]
+        self.chars = [PAD, UNK, UNDEF, START, STOP] + sorted(self.chars) + [" "]
         self.c2i = {c: i for i, c in enumerate(self.chars)}
 
     def save(self, filename):
@@ -60,7 +61,7 @@ class Vocabulary:
         )
 
     def code_word(self, w, stochastic_replacement=False):
-        if w in {START, STOP, UNDEF, UNK}:
+        if w in {PAD, START, STOP, UNDEF, UNK}:
             return self.w2i[w]
         if stochastic_replacement:
             threshold = ALPHA / (ALPHA + self.word_freqs[w])
@@ -75,7 +76,7 @@ class Vocabulary:
                 return UNK_I
 
     def code_chars(self, w):
-        if w in {START, STOP, UNDEF, UNK}:
+        if w in {PAD, START, STOP, UNDEF, UNK}:
             return [UNDEF_I]
         return [self.c2i[c] if c in self.c2i else UNK_I for c in [START] + list(w) + [STOP]]
 
