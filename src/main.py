@@ -131,7 +131,7 @@ def main(args):
                 }
 
     print("loading data...")
-    train, dev, test = get_data["tp_fr"]()
+    train, dev, test = get_data[args.dataset]()
 
     print("building vocabulary...")
     symbols = ["<g={}>".format(i) for i in ["F", "M"]] + ["<a={}>".format(i) for i in ["U", "O"]]
@@ -167,6 +167,8 @@ if __name__ == "__main__":
 """
     
     parser = argparse.ArgumentParser(description = usage, formatter_class=argparse.RawTextHelpFormatter)
+
+    parser.add_argument("dataset", default="tp_fr", choices=["tp_fr", "tp_de", "tp_dk", "tp_us", "tp_uk", "bl"], help="Dataset. tp=trustpilot, bl=blog")
     
     parser.add_argument("--learning-rate", "-lr", type=float, default=0.1)
     parser.add_argument("--batch-size", "-b", type=int, default=256)
