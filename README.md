@@ -2,7 +2,7 @@
 
 ## Train the model
 ```
-python -m src.main -b 128
+python -m src.main
 ```
 
 
