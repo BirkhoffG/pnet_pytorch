@@ -2,7 +2,7 @@
 
 ## Train the model
 ```
-python -m src.main
+python -m src.main -device cpu -d tp_us
 ```
 
 
