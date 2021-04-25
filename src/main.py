@@ -12,6 +12,7 @@ from torch.utils.data import DataLoader
 import sys
 from tqdm import tqdm
 import numpy as np
+from sklearn.metrics import f1_score
 
 
 def extract_vocabulary(dataset, add_symbols=None):
@@ -98,13 +99,25 @@ class PrModel:
 
         for i in range(self.args.iterations):
             self.main_classifier.train()
+            
+            train_acc = 0
+            train_tot = 0
+            train_loss = 0
             for _i, (input_vec, target) in enumerate(tqdm(train_loader)):
 #                 print('input_vec',input_vec.shape)
                 # sys.stderr.write("\r{}%".format(_i / len(train_dataset) * 100))
+                loss = 0
                 input_vec = input_vec.to(device)
                 target = target.to(device)
-                loss = self.main_classifier.get_loss(input_vec, target)
+                loss, predicts = self.main_classifier.get_loss_prediction(input_vec, target)
+                
+                for p, t in zip(predicts, target):
+                    train_tot += 1
+                    if p.item() == t.item():
+                        train_acc += 1
+                        
                 loss.backward()
+                train_loss += loss.item()
                 # mimic batchingc
 #                 if (_i + 1) % batch_size == 0:
                 optimizer.step()
@@ -118,8 +131,10 @@ class PrModel:
                 
                 # if self.args.generator:
                 #     generator_loss += self.generator_train(example)
+            train_acc = round(train_acc / train_tot * 100, 3)
+            print(f"[epoch={i+1}] train loss: {train_loss}, train acc: {train_acc}")
             l, acc = self.evaluate_main(val_loader)
-            print(f"[epoch={i+1}] loss: {l}, acc: {acc}")
+            print(f"[epoch={i+1}] val loss: {l}, val acc: {acc}")
             
  
     def evaluate_adversarial(self, dataset):
@@ -207,7 +222,7 @@ def main(args):
                 }
 
     print("loading data...")
-    train, dev, test = get_data["tp_fr"]()
+    train, dev, test = get_data[args.dataset]()
 
     print("building vocabulary...")
     symbols = ["<g={}>".format(i) for i in ["F", "M"]] + ["<a={}>".format(i) for i in ["U", "O"]]
@@ -248,7 +263,7 @@ if __name__ == "__main__":
     
     parser.add_argument("--learning-rate", "-b", type=float, default=1e-4)
     parser.add_argument("--batch-size", type=int, default=256)
-    parser.add_argument("--iterations", "-i", type=int, default=5, help="Number of training iterations")
+    parser.add_argument("--iterations", "-i", type=int, default=10, help="Number of training iterations")
     
     parser.add_argument("--seq_len", "-sl", type=int, default=75, help="Length of sequence")
 
@@ -260,7 +275,8 @@ if __name__ == "__main__":
 
     parser.add_argument("--fc-dim","-l", type=int, default=50, help="Dimension of hidden layers")
     
-    parser.add_argument("--device", "-d", type=str, default='cpu', help="Length of sequence")
+    parser.add_argument("--device", "-device", type=str, default='cpu', help="Length of sequence")
+    parser.add_argument("--dataset", '-d', choices=["ag", "dw", "tp_fr", "tp_de", "tp_dk", "tp_us", "tp_uk", "bl"], help="Dataset. tp=trustpilot, bl=blog", required=True)
     
     args = parser.parse_args()
 
