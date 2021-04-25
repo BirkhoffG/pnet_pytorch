@@ -30,8 +30,8 @@ class MainClassifier(nn.Module):
        
         self.char_hidden_dim = args.char_hidden_dim
         
-        self.char_embedding = nn.Embedding(alphabet_size, args.char_embed_dim)
-        self.char_bilstm = nn.LSTM(args.char_embed_dim, self.char_hidden_dim, bidirectional=True)
+        # self.char_embedding = nn.Embedding(alphabet_size, args.char_embed_dim)
+        # self.char_bilstm = nn.LSTM(args.char_embed_dim, self.char_hidden_dim, bidirectional=True)
         
         self.word_hidden_dim = args.word_hidden_dim
         self.word_embedding = nn.Embedding(vocab_size, args.word_embed_dim)

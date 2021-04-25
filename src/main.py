@@ -13,6 +13,8 @@ import sys
 from tqdm import tqdm
 import numpy as np
 
+import pytorch_influence_functions as pif
+
 
 def extract_vocabulary(dataset, add_symbols=None):
     freqs = defaultdict(int)
@@ -116,8 +118,18 @@ class PrModel:
     def train_adversarial(self, train, dev):
         pass
 
-    def evaluate_influence_sample(self, train):
-        pass
+    def evaluate_influence_sample(self, train, test):
+        train_dataset = PrDataset(train, self.vocabulary, args)
+        test_dataset = PrDataset(test, self.vocabulary, args)
+        train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size)
+        test_dataloader = DataLoader(test_dataset, batch_size=args.batch_size)
+
+        config = pif.get_default_config()
+        config['gpu'] = -1
+        config['damp'] = 0.01
+        config['scale'] = 1
+        print("config: ", config)
+        pif.calc_all_grad_then_test(config, self.main_classifier, train_dataloader, test_dataloader)
 
 
 def main(args):
@@ -143,7 +155,8 @@ def main(args):
 
     mod = PrModel(args, vocabulary, classifier_output_size, adversary_output_size)
     
-    mod.train_main(train, dev)
+    # mod.train_main(train, dev)
+    mod.evaluate_influence_sample(train, test)
 
 
 if __name__ == "__main__":
