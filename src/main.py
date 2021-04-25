@@ -176,7 +176,7 @@ class PrModel:
 
         # epoch 0
         l, gender_acc, age_acc = self.evaluate_adversarial(val_loader)
-        print(f"[epoch=0] loss: {l}, gender acc: {gender_acc}%, gender acc: {age_acc}%")
+        print(f"[epoch=0] loss: {l}, gender acc: {gender_acc}%, age acc: {age_acc}%")
     
         for i in range(self.args.iterations):
             self.main_classifier.train()
@@ -203,7 +203,7 @@ class PrModel:
                 # if self.args.generator:
                 #     generator_loss += self.generator_train(example)
             l, gender_acc, age_acc = self.evaluate_adversarial(val_loader)
-            print(f"[epoch={i+1}] loss: {l}, gender acc: {gender_acc}%, gender acc: {age_acc}%")
+            print(f"[epoch={i+1}] loss: {l}, gender acc: {gender_acc}%, age acc: {age_acc}%")
 
     def evaluate_influence_sample(self, train):
         pass
