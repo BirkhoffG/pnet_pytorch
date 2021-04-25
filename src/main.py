@@ -263,7 +263,7 @@ if __name__ == "__main__":
     
     parser.add_argument("--learning-rate", "-b", type=float, default=1e-4)
     parser.add_argument("--batch-size", type=int, default=256)
-    parser.add_argument("--iterations", "-i", type=int, default=10, help="Number of training iterations")
+    parser.add_argument("--iterations", "-i", type=int, default=15, help="Number of training iterations")
     
     parser.add_argument("--seq_len", "-sl", type=int, default=75, help="Length of sequence")
 
