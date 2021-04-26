@@ -229,8 +229,8 @@ def main(args):
 
     mod = PrModel(args, vocabulary, classifier_output_size, adversary_output_size)
     
-    # mod.train_main(train, dev)
-    # mod.train_adversarial(train, dev)
+    mod.train_main(train, dev)
+    mod.train_adversarial(train, dev)
     mod.evaluate_influence_sample(train, test)
     
 
