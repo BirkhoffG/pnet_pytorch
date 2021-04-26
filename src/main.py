@@ -97,9 +97,8 @@ class PrModel:
         batch_size = self.args.batch_size
         device = self.device
         
-
-        train_dataset = PrDataset(train, self.vocabulary, self.args.seq_len)
-        val_dataset = PrDataset(dev, self.vocabulary, self.args.seq_len)
+        train_dataset = PrDataset(train, self.vocabulary, self.args)
+        val_dataset = PrDataset(dev, self.vocabulary, self.args)
 
         if self.args.is_add_gradient_noise:
             optimizer = optim.DPAdam(
@@ -113,11 +112,11 @@ class PrModel:
             print('Achieves ({}, {})-DP'.format(analysis.epsilon(len(train_dataset), minibatch_size, noise_multiplier,
                     iterations, delta,), delta, ))
             train_loader = minibatch_loader(train_dataset)
-            val_loader = minibatch_loader(val_dataset)
+#             val_loader = minibatch_loader(val_dataset)
         else:
             optimizer = optim.Adam(self.main_classifier.parameters(), lr=lr)
             train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
-            val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
+        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
             
         
 
@@ -216,8 +215,8 @@ class PrModel:
         output_size =  self.adversary_classifier.output_size
         seq_len = self.args.seq_len
         
-        train_dataset = AttackDataset(train, self.vocabulary, seq_len, output_size)
-        val_dataset = AttackDataset(dev, self.vocabulary, seq_len, output_size)
+        train_dataset = AttackDataset(train, self.vocabulary, self.args, output_size)
+        val_dataset = AttackDataset(dev, self.vocabulary, self.args, output_size)
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
         val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
         
@@ -279,8 +278,8 @@ class PrModel:
         print(f"[val epoch=final] loss: {l}, gender acc: {gender_acc}%, age acc: {age_acc}%")
 
     def evaluate_influence_sample(self, train, test):
-        train_dataset = PrDataset(train, self.vocabulary, self.args.seq_len)
-        test_dataset = PrDataset(test, self.vocabulary, self.args.seq_len)
+        train_dataset = PrDataset(train, self.vocabulary, self.args)
+        test_dataset = PrDataset(test, self.vocabulary, self.args)
         train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size)
         test_dataloader = DataLoader(test_dataset, batch_size=args.batch_size)
 
@@ -365,7 +364,7 @@ if __name__ == "__main__":
     parser.add_argument("--iterations", "-i", type=int, default=10, help="Number of training iterations")
     
     parser.add_argument("--seq_len", "-sl", type=int, default=75, help="Length of word sequence")
-    parser.add_argument("--char_seq_len", "-csl", type=int, default=150, help="Length of character sequence")
+    parser.add_argument("--char_seq_len", "-csl", type=int, default=500, help="Length of character sequence")
 
     # define model parameters
     parser.add_argument("--char-embed-dim","-c", type=int, default=50, help="Dimension of char embeddings")
@@ -379,7 +378,7 @@ if __name__ == "__main__":
     
     parser.add_argument("--is-add-loss-noise", action="store_true", help="Add noise to loss, [default=false]")
     parser.add_argument("--is-add-gradient-noise", action="store_true", help="Add noise to gradient, [default=false]")
-    parser.add_argument("--is-influence-sample", "-if", action="store_true", help="Evaluate influence, [default=false]")
+    parser.add_argument("--is-influence-sample", action="store_true", help="Evaluate influence, [default=false]")
     parser.add_argument("--use-char-lstm", action="store_true", help="Use a character LSTM, [default=false]")
     
     args = parser.parse_args()
