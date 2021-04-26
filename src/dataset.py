@@ -28,11 +28,13 @@ from sklearn.utils import shuffle
 #         self.dataset = shuffle(self.dataset)
 
 class PrDataset(Dataset):
-    def __init__(self, examples: List[Example], voc: Vocabulary, seq_len) -> None:
+    def __init__(self, examples: List[Example], voc: Vocabulary, seq_len: int, aux_size: int = 2, return_aux: bool = True) -> None:
         super().__init__()
         self.vocabulary = voc
         self.dataset = examples
         self.seq_len = seq_len
+        self.aux_size = aux_size
+        self.return_aux = return_aux
 
     def _get_input(self, sentence):
         return self.vocabulary.code_sentence_cw(sentence)
@@ -44,8 +46,15 @@ class PrDataset(Dataset):
         sentence = sentence[:self.seq_len]
         sentence = sentence + ['<PAD>' for _ in range(0, self.seq_len-len(sentence))]
         input_vec = self.vocabulary.code_sentence_w(sentence)
+        # label
         target = example.get_label()
-        return torch.tensor(input_vec), torch.tensor([target])
+        if self.return_aux:
+            # aux 
+            aux = list(example.get_aux_labels())
+            aux = [1 if i in aux else 0 for i in range(self.aux_size)]
+            return torch.tensor(input_vec), torch.tensor(aux), torch.tensor([target])
+        else:
+            return torch.tensor(input_vec), torch.tensor([target])
     
     def __len__(self):
         return len(self.dataset)

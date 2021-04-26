@@ -48,6 +48,8 @@ class MainClassifier(nn.Module):
         self.seq_len = args.seq_len
         self.batch_size = args.batch_size
         self.device = args.device
+
+        self.weight_init()
     
     def forward(self, sentence, adversary=False):
         """
@@ -110,7 +112,13 @@ class MainClassifier(nn.Module):
     def freeze_parameters(self):
         for p in self.parameters():
             p.requires_grad = False
-    
+
+    def weight_init(self):
+        for param in self.bilstm.parameters():
+            if len(param.shape) >= 2:
+                nn.init.orthogonal_(param.data)
+            else:
+                nn.init.normal_(param.data)
 
 class AdversaryClassifier(nn.Module):
     """
