@@ -4,6 +4,13 @@
 
 ```
 pip install git+https://github.com/BirkhoffG/pytorch_influence_functions.git
+
+```
+## Install pytorch Deep Learning with Differential Privacy
+
+```
+pip install git+https://github.com/ChrisWaites/pyvacy.git
+
 ```
 
 ## Train the model
