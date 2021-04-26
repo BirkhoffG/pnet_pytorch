@@ -14,6 +14,8 @@ from tqdm import tqdm
 import numpy as np
 from sklearn.metrics import f1_score
 
+import pytorch_influence_functions as pif
+
 
 def extract_vocabulary(dataset, add_symbols=None):
     freqs = defaultdict(int)
@@ -205,8 +207,18 @@ class PrModel:
             l, gender_acc, age_acc = self.evaluate_adversarial(val_loader)
             print(f"[epoch={i+1}] loss: {l}, gender acc: {gender_acc}%, age acc: {age_acc}%")
 
-    def evaluate_influence_sample(self, train):
-        pass
+    def evaluate_influence_sample(self, train, test):
+        train_dataset = PrDataset(train, self.vocabulary, args)
+        test_dataset = PrDataset(test, self.vocabulary, args)
+        train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size)
+        test_dataloader = DataLoader(test_dataset, batch_size=args.batch_size)
+
+        config = pif.get_default_config()
+        config['gpu'] = -1
+        config['damp'] = 0.01
+        config['scale'] = 1
+        print("config: ", config)
+        pif.calc_all_grad_then_test(config, self.main_classifier, train_dataloader, test_dataloader)
 
 
 def main(args):
@@ -236,6 +248,7 @@ def main(args):
     
     mod.train_main(train, dev)
     mod.train_adversarial(train, dev)
+    mod.evaluate_influence_sample(train, test)
     
 
 
@@ -260,6 +273,8 @@ if __name__ == "__main__":
 """
     
     parser = argparse.ArgumentParser(description = usage, formatter_class=argparse.RawTextHelpFormatter)
+
+    parser.add_argument("dataset", default="tp_fr", choices=["tp_fr", "tp_de", "tp_dk", "tp_us", "tp_uk", "bl"], help="Dataset. tp=trustpilot, bl=blog")
     
     parser.add_argument("--learning-rate", "-b", type=float, default=1e-4)
     parser.add_argument("--batch-size", type=int, default=256)
