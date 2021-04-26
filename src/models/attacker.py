@@ -33,16 +33,18 @@ class MainClassifier(nn.Module):
         # self.char_embedding = nn.Embedding(alphabet_size, args.char_embed_dim)
         # self.char_bilstm = nn.LSTM(args.char_embed_dim, self.char_hidden_dim, bidirectional=True)
         
-        self.word_hidden_dim = args.word_hidden_dim
+        self.word_hidden_dim = args.word_hidden_dim 
+        
+        self.num_layers = 2
         self.word_embedding = nn.Embedding(vocab_size, args.word_embed_dim)
-        self.bilstm = nn.LSTM(args.word_embed_dim, self.word_hidden_dim, bidirectional=True)
+        self.bilstm = nn.LSTM(args.word_embed_dim, self.word_hidden_dim, bidirectional=True, num_layers = self.num_layers)
         # self.bilstm = nn.LSTM(args.word_embed_dim + self.char_hidden_dim * 2, self.word_hidden_dim, bidirectional=True)
-        self.fc1 = nn.Linear(self.word_hidden_dim * 2,  args.fc_dim)
+        self.fc1 = nn.Linear(self.word_hidden_dim * 2, args.fc_dim)
         self.relu = nn.ReLU()
         self.fc2 = nn.Linear(args.fc_dim, output_size)
         self.softmax = nn.Softmax(dim=-1)
 
-        self.hidden_size = self.word_hidden_dim * 2
+        self.hidden_size = self.word_hidden_dim * 2 
         self.seq_len = args.seq_len
         self.batch_size = args.batch_size
         self.device = args.device
@@ -58,35 +60,11 @@ class MainClassifier(nn.Module):
             if adversary, returns intermediate encoding
             if not adversary, returns softmax output
         """
-        # sentence_c, sentence_w = sentence
-        # c_lstm_hidden = []
-        
-        # for token in sentence_c:
-        #     token = torch.tensor(token)
-        #     h_c = torch.zeros(2, 1, self.char_hidden_dim)
-        #     c_c = torch.zeros(2, 1, self.char_hidden_dim)
-        #     # print("token: ", token)
-        #     char_embed = self.char_embedding(token).view(len(token), 1, -1)
-        #     _ , (hidden_state, cell_state) = self.char_bilstm(char_embed, (h_c, c_c))
-        #     hidden_state = hidden_state.view(-1, self.char_hidden_dim * 2)
-        #     c_lstm_hidden.append(hidden_state)
-        # c_lstm_hidden = torch.stack(c_lstm_hidden)
-        
-        # sentence_w = torch.tensor(sentence_w)
-#         print('sentence',sentence.shape)
-#         sentence_w = sentence
-#         if len(sentence_w.shape) == 1:
-#             sentence_w = sentence_w.view(1, sentence_w.shape[0])
-#         print('sentence_w',sentence_w.shape)
-#         word_embed = self.word_embedding(sentence_w).transpose(0,1)#.view(sentence_w.shape[1], sentence_w.shape[0], -1)
-#         print('word_embed',word_embed.shape)
-        # wc_embed = torch.cat((word_embed, c_lstm_hidden), 2)
-        
         last_hidden_state = self.get_lstm_embed(sentence)
         
         if adversary:
             return last_hidden_state
-        
+
         fc_output = self.fc1(last_hidden_state)
         fc_output = self.relu(fc_output)
         fc_output = self.fc2(fc_output)
@@ -99,20 +77,21 @@ class MainClassifier(nn.Module):
             sentence = sentence.view(1, sentence.shape[0])
         word_embed = self.word_embedding(sentence).transpose(0,1)#.view(sentence_w.shape[1], sentence_w.shape[0], -1)
         
-        h_w = torch.zeros(2, sentence.shape[0], self.word_hidden_dim).to(self.device)
-        c_w = torch.zeros(2, sentence.shape[0], self.word_hidden_dim).to(self.device)
+        h_w = torch.zeros(self.num_layers*2, sentence.shape[0], self.word_hidden_dim).to(self.device)
+        c_w = torch.zeros(self.num_layers*2, sentence.shape[0], self.word_hidden_dim).to(self.device)
         
-        _ , (hidden_state, cell_state) = self.bilstm(word_embed, (h_w, c_w))
-        
-        last_hidden_state = hidden_state[-2:].view(-1, self.word_hidden_dim * 2)
-        
+        output , (hidden_state, cell_state) = self.bilstm(word_embed, (h_w, c_w))
+        output = output.transpose(0,1)#hidden_state[-2:].view(-1, self.word_hidden_dim * 2)
+        last_hidden_state = output[:,-1,:]
         return last_hidden_state
     
     def get_loss(self, sentence, target):
+        loss = nn.CrossEntropyLoss()
         if len(sentence.shape) == 1: 
-            return F.nll_loss(self(sentence), torch.tensor([target]))
+            return loss(self(sentence), torch.tensor([target]))
         else:
-            return F.nll_loss(self(sentence), target.view(-1))
+            return loss(self(sentence), target.view(-1))
+
 
     def get_prediction(self, sentence):
         if len(sentence.shape) == 1:
@@ -121,11 +100,13 @@ class MainClassifier(nn.Module):
             return torch.argmax(self(sentence), dim=1)
 
     def get_loss_prediction(self, sentence, target):
+        loss = nn.CrossEntropyLoss()
         output = self(sentence)
         if len(sentence.shape) == 1: 
-            return F.nll_loss(output, torch.tensor([target])), torch.argmax(output)
+            return loss(output, torch.tensor([target])), torch.argmax(output)
         else: 
-            return F.nll_loss(output, target.view(-1)), torch.argmax(output, dim=1)
+            return loss(output, target.view(-1)), torch.argmax(output, dim=1)
+
     def freeze_parameters(self):
         for p in self.parameters():
             p.requires_grad = False
@@ -182,3 +163,28 @@ class AdversaryClassifier(nn.Module):
         prediction[prediction<0.5] = 0
         loss_function = nn.BCEWithLogitsLoss()
         return loss_function(output, target.float()), prediction
+    
+#=========dead kitten==========#
+        # sentence_c, sentence_w = sentence
+        # c_lstm_hidden = []
+        
+        # for token in sentence_c:
+        #     token = torch.tensor(token)
+        #     h_c = torch.zeros(2, 1, self.char_hidden_dim)
+        #     c_c = torch.zeros(2, 1, self.char_hidden_dim)
+        #     # print("token: ", token)
+        #     char_embed = self.char_embedding(token).view(len(token), 1, -1)
+        #     _ , (hidden_state, cell_state) = self.char_bilstm(char_embed, (h_c, c_c))
+        #     hidden_state = hidden_state.view(-1, self.char_hidden_dim * 2)
+        #     c_lstm_hidden.append(hidden_state)
+        # c_lstm_hidden = torch.stack(c_lstm_hidden)
+        
+        # sentence_w = torch.tensor(sentence_w)
+#         print('sentence',sentence.shape)
+#         sentence_w = sentence
+#         if len(sentence_w.shape) == 1:
+#             sentence_w = sentence_w.view(1, sentence_w.shape[0])
+#         print('sentence_w',sentence_w.shape)
+#         word_embed = self.word_embedding(sentence_w).transpose(0,1)#.view(sentence_w.shape[1], sentence_w.shape[0], -1)
+#         print('word_embed',word_embed.shape)
+        # wc_embed = torch.cat((word_embed, c_lstm_hidden), 2)

@@ -101,25 +101,13 @@ class PrModel:
 
         for i in range(self.args.iterations):
             self.main_classifier.train()
-            
-            train_acc = 0
-            train_tot = 0
-            train_loss = 0
             for _i, (input_vec, target) in enumerate(tqdm(train_loader)):
 #                 print('input_vec',input_vec.shape)
                 # sys.stderr.write("\r{}%".format(_i / len(train_dataset) * 100))
-                loss = 0
                 input_vec = input_vec.to(device)
                 target = target.to(device)
-                loss, predicts = self.main_classifier.get_loss_prediction(input_vec, target)
-                
-                for p, t in zip(predicts, target):
-                    train_tot += 1
-                    if p.item() == t.item():
-                        train_acc += 1
-                        
+                loss = self.main_classifier.get_loss(input_vec, target)
                 loss.backward()
-                train_loss += loss.item()
                 # mimic batchingc
 #                 if (_i + 1) % batch_size == 0:
                 optimizer.step()
@@ -133,15 +121,13 @@ class PrModel:
                 
                 # if self.args.generator:
                 #     generator_loss += self.generator_train(example)
-            train_acc = round(train_acc / train_tot * 100, 3)
-            print(f"[epoch={i+1}] train loss: {train_loss}, train acc: {train_acc}")
             l, acc = self.evaluate_main(val_loader)
-            print(f"[epoch={i+1}] val loss: {l}, val acc: {acc}")
+            print(f"[epoch={i+1}] loss: {l}, acc: {acc}")
             
  
     def evaluate_adversarial(self, dataset):
         self.adversary_classifier.eval()
-#         self.main_classifier.eval()
+        self.main_classifier.eval()
         device = self.device
         loss = 0
         gender_acc = 0
@@ -178,19 +164,15 @@ class PrModel:
 
         # epoch 0
         l, gender_acc, age_acc = self.evaluate_adversarial(val_loader)
-        print(f"[epoch=0] loss: {l}, gender acc: {gender_acc}%, age acc: {age_acc}%")
-    
-        for i in range(self.args.iterations):
-            self.main_classifier.train()
-            self.adversary_classifier.train()
-            #freeze the model
-            self.main_classifier.freeze_parameters()
+        print(f"[epoch=0] loss: {l}, gender acc: {gender_acc}%, gender acc: {age_acc}%")
 
+        for i in range(self.args.iterations):
+            self.adversary_classifier.train()
+            self.main_classifier.train()
             for _i, (input_vec, target) in enumerate(tqdm(train_loader)):
                 input_vec = input_vec.to(device)
                 target = target.to(device)
                 hidden_state = self.main_classifier.get_lstm_embed(input_vec)
-                
                 loss = self.adversary_classifier.get_loss(hidden_state, target)
                 loss.backward()
                 optimizer.step()
@@ -278,7 +260,7 @@ if __name__ == "__main__":
     
     parser.add_argument("--learning-rate", "-b", type=float, default=1e-4)
     parser.add_argument("--batch-size", type=int, default=256)
-    parser.add_argument("--iterations", "-i", type=int, default=15, help="Number of training iterations")
+    parser.add_argument("--iterations", "-i", type=int, default=5, help="Number of training iterations")
     
     parser.add_argument("--seq_len", "-sl", type=int, default=75, help="Length of sequence")
 
@@ -290,7 +272,7 @@ if __name__ == "__main__":
 
     parser.add_argument("--fc-dim","-l", type=int, default=50, help="Dimension of hidden layers")
     
-    parser.add_argument("--device", "-device", type=str, default='cpu', help="Length of sequence")
+    parser.add_argument("--device", "-d", type=str, default='cpu', help="Length of sequence")
     parser.add_argument("--dataset", '-d', choices=["ag", "dw", "tp_fr", "tp_de", "tp_dk", "tp_us", "tp_uk", "bl"], help="Dataset. tp=trustpilot, bl=blog", required=True)
     
     args = parser.parse_args()

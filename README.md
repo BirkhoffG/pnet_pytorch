@@ -8,7 +8,7 @@ pip install git+https://github.com/BirkhoffG/pytorch_influence_functions.git
 
 ## Train the model
 ```
-python -m src.main -b 128
+python -m src.main -device cpu -d tp_us
 ```
 
 
