@@ -30,8 +30,8 @@ class MainClassifier(nn.Module):
        
         self.char_hidden_dim = args.char_hidden_dim
         
-        self.char_embedding = nn.Embedding(alphabet_size, args.char_embed_dim)
-        self.char_bilstm = nn.LSTM(args.char_embed_dim, self.char_hidden_dim, bidirectional=True)
+        # self.char_embedding = nn.Embedding(alphabet_size, args.char_embed_dim)
+        # self.char_bilstm = nn.LSTM(args.char_embed_dim, self.char_hidden_dim, bidirectional=True)
         
         self.word_hidden_dim = args.word_hidden_dim 
         
@@ -64,6 +64,7 @@ class MainClassifier(nn.Module):
         
         if adversary:
             return last_hidden_state
+
         fc_output = self.fc1(last_hidden_state)
         fc_output = self.relu(fc_output)
         fc_output = self.fc2(fc_output)
@@ -91,6 +92,7 @@ class MainClassifier(nn.Module):
         else:
             return loss(self(sentence), target.view(-1))
 
+
     def get_prediction(self, sentence):
         if len(sentence.shape) == 1:
             return torch.argmax(self(sentence))
@@ -104,6 +106,7 @@ class MainClassifier(nn.Module):
             return loss(output, torch.tensor([target])), torch.argmax(output)
         else: 
             return loss(output, target.view(-1)), torch.argmax(output, dim=1)
+
     def freeze_parameters(self):
         for p in self.parameters():
             p.requires_grad = False

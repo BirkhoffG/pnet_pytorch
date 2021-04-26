@@ -12,6 +12,9 @@ from torch.utils.data import DataLoader
 import sys
 from tqdm import tqdm
 import numpy as np
+from sklearn.metrics import f1_score
+
+import pytorch_influence_functions as pif
 
 
 def extract_vocabulary(dataset, add_symbols=None):
@@ -184,10 +187,20 @@ class PrModel:
                 # if self.args.generator:
                 #     generator_loss += self.generator_train(example)
             l, gender_acc, age_acc = self.evaluate_adversarial(val_loader)
-            print(f"[epoch={i+1}] loss: {l}, gender acc: {gender_acc}%, gender acc: {age_acc}%")
+            print(f"[epoch={i+1}] loss: {l}, gender acc: {gender_acc}%, age acc: {age_acc}%")
 
-    def evaluate_influence_sample(self, train):
-        pass
+    def evaluate_influence_sample(self, train, test):
+        train_dataset = PrDataset(train, self.vocabulary, args)
+        test_dataset = PrDataset(test, self.vocabulary, args)
+        train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size)
+        test_dataloader = DataLoader(test_dataset, batch_size=args.batch_size)
+
+        config = pif.get_default_config()
+        config['gpu'] = -1
+        config['damp'] = 0.01
+        config['scale'] = 1
+        print("config: ", config)
+        pif.calc_all_grad_then_test(config, self.main_classifier, train_dataloader, test_dataloader)
 
 
 def main(args):
@@ -203,7 +216,7 @@ def main(args):
                 }
 
     print("loading data...")
-    train, dev, test = get_data["tp_fr"]()
+    train, dev, test = get_data[args.dataset]()
 
     print("building vocabulary...")
     symbols = ["<g={}>".format(i) for i in ["F", "M"]] + ["<a={}>".format(i) for i in ["U", "O"]]
@@ -217,6 +230,7 @@ def main(args):
     
     mod.train_main(train, dev)
     mod.train_adversarial(train, dev)
+    mod.evaluate_influence_sample(train, test)
     
 
 
@@ -241,6 +255,8 @@ if __name__ == "__main__":
 """
     
     parser = argparse.ArgumentParser(description = usage, formatter_class=argparse.RawTextHelpFormatter)
+
+    parser.add_argument("dataset", default="tp_fr", choices=["tp_fr", "tp_de", "tp_dk", "tp_us", "tp_uk", "bl"], help="Dataset. tp=trustpilot, bl=blog")
     
     parser.add_argument("--learning-rate", "-b", type=float, default=1e-4)
     parser.add_argument("--batch-size", type=int, default=256)
@@ -257,6 +273,7 @@ if __name__ == "__main__":
     parser.add_argument("--fc-dim","-l", type=int, default=50, help="Dimension of hidden layers")
     
     parser.add_argument("--device", "-d", type=str, default='cpu', help="Length of sequence")
+    parser.add_argument("--dataset", '-d', choices=["ag", "dw", "tp_fr", "tp_de", "tp_dk", "tp_us", "tp_uk", "bl"], help="Dataset. tp=trustpilot, bl=blog", required=True)
     
     args = parser.parse_args()
 

@@ -1,5 +1,11 @@
 # privacy_hidden_representations
 
+## Install pytorch influence function
+
+```
+pip install git+https://github.com/BirkhoffG/pytorch_influence_functions.git
+```
+
 ## Train the model
 ```
 python -m src.main -device cpu -d tp_us
