@@ -197,15 +197,17 @@ class PrModel:
         test_dataloader = DataLoader(test_dataset, batch_size=args.batch_size)
 
         config = pif.get_default_config()
+        
         config['gpu'] = -1
         config['damp'] = 0.01
         config['scale'] = 1
+        self.main_classifier = self.main_classifier.cpu()
         print("config: ", config)
         pif.calc_all_grad_then_test(config, self.main_classifier, train_dataloader, test_dataloader)
 
 
 def main(args):
-
+    args.device_num = args.device
     device = torch.device(f'cuda:{args.device}' if args.device != 'cpu' else 'cpu')
     args.device = device
     torch.manual_seed(0)
@@ -273,8 +275,7 @@ if __name__ == "__main__":
 
     parser.add_argument("--fc-dim","-l", type=int, default=50, help="Dimension of hidden layers")
     
-    parser.add_argument("--device", "-d", type=str, default='cpu', help="Training device")
-    # parser.add_argument("--dataset", '-d', choices=["ag", "dw", "tp_fr", "tp_de", "tp_dk", "tp_us", "tp_uk", "bl"], help="Dataset. tp=trustpilot, bl=blog", required=True)
+    parser.add_argument("--device", '-device', type=str, default='cpu', help="Training device")
     
     args = parser.parse_args()
 
