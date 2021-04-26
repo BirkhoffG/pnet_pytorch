@@ -4,6 +4,7 @@
 
 ```
 pip install git+https://github.com/BirkhoffG/pytorch_influence_functions.git
+pip install git+https://github.com/ChrisWaites/pyvacy.git
 ```
 
 ## Train the model
