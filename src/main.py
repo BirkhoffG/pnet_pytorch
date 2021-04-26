@@ -216,8 +216,8 @@ class PrModel:
         output_size =  self.adversary_classifier.output_size
         seq_len = self.args.seq_len
         
-        train_dataset = AttackDataset(train, self.vocabulary, self.args, output_size)
-        val_dataset = AttackDataset(dev, self.vocabulary, self.args, output_size)
+        train_dataset = AttackDataset(train, self.vocabulary, seq_len, output_size)
+        val_dataset = AttackDataset(dev, self.vocabulary, seq_len, output_size)
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
         val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
         
@@ -279,8 +279,8 @@ class PrModel:
         print(f"[val epoch=final] loss: {l}, gender acc: {gender_acc}%, age acc: {age_acc}%")
 
     def evaluate_influence_sample(self, train, test):
-        train_dataset = PrDataset(train, self.vocabulary, self.args)
-        test_dataset = PrDataset(test, self.vocabulary, self.args)
+        train_dataset = PrDataset(train, self.vocabulary, self.args.seq_len)
+        test_dataset = PrDataset(test, self.vocabulary, self.args.seq_len)
         train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size)
         test_dataloader = DataLoader(test_dataset, batch_size=args.batch_size)
 
@@ -379,7 +379,7 @@ if __name__ == "__main__":
     
     parser.add_argument("--is-add-loss-noise", action="store_true", help="Add noise to loss, [default=false]")
     parser.add_argument("--is-add-gradient-noise", action="store_true", help="Add noise to gradient, [default=false]")
-    parser.add_argument("--is-influence-sample", action="store_true", help="Evaluate influence, [default=false]")
+    parser.add_argument("--is-influence-sample", "-if", action="store_true", help="Evaluate influence, [default=false]")
     parser.add_argument("--use-char-lstm", action="store_true", help="Use a character LSTM, [default=false]")
     
     args = parser.parse_args()
