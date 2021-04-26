@@ -7,6 +7,7 @@ import torch
 import torch.nn as nn
 from torch.autograd import Variable
 import torch.nn.functional as F
+import numpy as np
 
 
 class MainClassifier(nn.Module):
@@ -29,15 +30,19 @@ class MainClassifier(nn.Module):
         super(MainClassifier, self).__init__()
        
         self.char_hidden_dim = args.char_hidden_dim
-        
         # self.char_embedding = nn.Embedding(alphabet_size, args.char_embed_dim)
         # self.char_bilstm = nn.LSTM(args.char_embed_dim, self.char_hidden_dim, bidirectional=True)
         
         self.word_hidden_dim = args.word_hidden_dim 
         
-        self.num_layers = 2
+        self.num_layers = 1
+        if args.use_char_lstm:
+            vocab_size = alphabet_size
+        else:
+            vocab_size = vocab_size
+            
         self.word_embedding = nn.Embedding(vocab_size, args.word_embed_dim)
-        self.bilstm = nn.LSTM(args.word_embed_dim, self.word_hidden_dim, bidirectional=True, num_layers = self.num_layers)
+        self.bilstm = nn.LSTM(args.word_embed_dim, self.word_hidden_dim, bidirectional=True, num_layers = self.num_layers, dropout = 0.2)
         # self.bilstm = nn.LSTM(args.word_embed_dim + self.char_hidden_dim * 2, self.word_hidden_dim, bidirectional=True)
         self.fc1 = nn.Linear(self.word_hidden_dim * 2, args.fc_dim)
         self.relu = nn.ReLU()
@@ -73,12 +78,13 @@ class MainClassifier(nn.Module):
         return fc_output
 
     def get_lstm_embed(self, sentence):
+        device = sentence.device
         if len(sentence.shape) == 1:
             sentence = sentence.view(1, sentence.shape[0])
         word_embed = self.word_embedding(sentence).transpose(0,1)#.view(sentence_w.shape[1], sentence_w.shape[0], -1)
         
-        h_w = torch.zeros(self.num_layers*2, sentence.shape[0], self.word_hidden_dim).to(self.device)
-        c_w = torch.zeros(self.num_layers*2, sentence.shape[0], self.word_hidden_dim).to(self.device)
+        h_w = torch.zeros(self.num_layers*2, sentence.shape[0], self.word_hidden_dim).to(device)
+        c_w = torch.zeros(self.num_layers*2, sentence.shape[0], self.word_hidden_dim).to(device)
         
         output , (hidden_state, cell_state) = self.bilstm(word_embed, (h_w, c_w))
         output = output.transpose(0,1)#hidden_state[-2:].view(-1, self.word_hidden_dim * 2)
@@ -110,7 +116,7 @@ class MainClassifier(nn.Module):
     def freeze_parameters(self):
         for p in self.parameters():
             p.requires_grad = False
-    
+           
 
 class AdversaryClassifier(nn.Module):
     """
@@ -144,24 +150,24 @@ class AdversaryClassifier(nn.Module):
     
     def get_loss(self, hidden_state, target):
         output = self(hidden_state)  
-        loss_function = nn.BCEWithLogitsLoss()
+        loss_function = nn.BCEsLoss()
         return loss_function(output, target.float())
         
     def get_prediction(self, hidden_state):
         output = self(hidden_state)
-        prediction = output.cpu().clone()
-        prediction[prediction>=0.5] = 1
-        prediction[prediction<0.5] = 0
+        prediction = output.detach().cpu().clone()
+        prediction[prediction>0.5] = 1
+        prediction[prediction<=0.5] = 0
         return prediction
 
     def get_loss_prediction(self, hidden_state, target):
         output = self(hidden_state) 
 #         print('output', output[0])
 #         print('target', target[0])
-        prediction = output.cpu().clone()
-        prediction[prediction>=0.5] = 1
-        prediction[prediction<0.5] = 0
-        loss_function = nn.BCEWithLogitsLoss()
+        prediction = output.detach().cpu().clone()
+        prediction[prediction>0.5] = 1
+        prediction[prediction<=0.5] = 0
+        loss_function = nn.BCELoss()
         return loss_function(output, target.float()), prediction
     
 #=========dead kitten==========#
