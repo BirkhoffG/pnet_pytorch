@@ -15,7 +15,7 @@ pip install git+https://github.com/ChrisWaites/pyvacy.git
 
 ## Train the model
 ```
-python -m src.main -device cpu -d tp_us
+python -m src.main -device cpu tp_us
 ```
 
 
