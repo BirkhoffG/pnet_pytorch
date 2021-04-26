@@ -35,7 +35,7 @@ class MainClassifier(nn.Module):
         
         self.word_hidden_dim = args.word_hidden_dim 
         
-        self.num_layers = 1
+        self.num_layers = 2
         if args.use_char_lstm:
             vocab_size = alphabet_size
         else:
