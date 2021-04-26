@@ -90,10 +90,10 @@ class PrModel:
         train_dataset = PrDataset(train, self.vocabulary, self.args.seq_len)
         val_dataset = PrDataset(dev, self.vocabulary, self.args.seq_len)
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
-        
         val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
 
         optimizer = optim.AdamW(self.main_classifier.parameters(), lr=lr)
+#         optimizer = optim.SGD(self.main_classifier.parameters(), lr=lr)
         
         # epoch 0
         l, acc = self.evaluate_main(val_loader)
@@ -101,18 +101,31 @@ class PrModel:
 
         for i in range(self.args.iterations):
             self.main_classifier.train()
+            train_loss = 0
+            train_acc = 0
+            train_tot = 0
             for _i, (input_vec, target) in enumerate(tqdm(train_loader)):
 #                 print('input_vec',input_vec.shape)
-                # sys.stderr.write("\r{}%".format(_i / len(train_dataset) * 100))
+                # sys.stderr.write("\r{}%".format(_i / len(train_dataset) * 100))            
                 input_vec = input_vec.to(device)
                 target = target.to(device)
-                loss = self.main_classifier.get_loss(input_vec, target)
-                loss.backward()
-                # mimic batchingc
-#                 if (_i + 1) % batch_size == 0:
+                loss, predicts = self.main_classifier.get_loss_prediction(input_vec, target)
+                
+                if self.args.is_add_loss_noise:  
+                    loss = loss + self.add_loss_noise() #add noise before backward
+                loss.backward()              
+                if self.args.is_add_gradient_noise:  
+                    self.add_gradient_noise() #add noise after gradient is calculated. 
+                    
                 optimizer.step()
                 optimizer.zero_grad()
-
+                
+                train_loss += loss.item()
+                for p, t in zip(predicts, target):
+                    train_tot += 1
+                    if p.item() == t.item():
+                        train_acc += 1
+                        
                 # if self.args.ptraining:
                 #     self.privacy_train(example, train)
                 
@@ -121,8 +134,11 @@ class PrModel:
                 
                 # if self.args.generator:
                 #     generator_loss += self.generator_train(example)
+            train_acc = round(train_acc / train_tot  * 100, 3)
+            print(f"[train epoch={i+1}] loss: {train_loss}, acc: {train_acc}%")
+            
             l, acc = self.evaluate_main(val_loader)
-            print(f"[epoch={i+1}] loss: {l}, acc: {acc}%")
+            print(f"[val epoch={i+1}] loss: {l}, acc: {acc}%")
             
  
     def evaluate_adversarial(self, dataset):
@@ -164,21 +180,35 @@ class PrModel:
 
         # epoch 0
         l, gender_acc, age_acc = self.evaluate_adversarial(val_loader)
-        print(f"[epoch=0] loss: {l}, gender acc: {gender_acc}%, gender acc: {age_acc}%")
+        print(f"[epoch=0] loss: {l}, gender acc: {gender_acc}%, age acc: {age_acc}%")
 
         self.main_classifier.eval()
         for i in range(self.args.iterations):
             self.adversary_classifier.train()
+            self.main_classifier.eval()
+            
+            train_loss = 0
+            train_gender_acc = 0
+            train_age_acc = 0
+            train_tot = 0
+            
             for _i, (input_vec, target) in enumerate(tqdm(train_loader)):
                 input_vec = input_vec.to(device)
                 target = target.to(device)
                 hidden_state = self.main_classifier.get_lstm_embed(input_vec)
                 hidden_state = hidden_state.detach()
-                loss = self.adversary_classifier.get_loss(hidden_state, target)
+                loss, predicts = self.adversary_classifier.get_loss_prediction(hidden_state, target)
                 loss.backward()
                 optimizer.step()
                 optimizer.zero_grad()
 
+                train_loss += loss.item()
+                for p, t in zip(predicts, target):
+                    train_tot += 1
+                    if p[0].item() == t[0].item():
+                        train_gender_acc += 1
+                    if p[1].item() == t[1].item():
+                        train_age_acc += 1
                 # if self.args.ptraining:
                 #     self.privacy_train(example, train)
                 
@@ -187,8 +217,11 @@ class PrModel:
                 
                 # if self.args.generator:
                 #     generator_loss += self.generator_train(example)
+            train_gender_acc = round(train_gender_acc / train_tot  * 100, 3)
+            train_age_acc = round(train_age_acc / train_tot  * 100, 3)
+            print(f"[train epoch={i+1}] loss: {train_loss}, gender acc: {train_gender_acc}%, age acc: {train_age_acc}%")
             l, gender_acc, age_acc = self.evaluate_adversarial(val_loader)
-            print(f"[epoch={i+1}] loss: {l}, gender acc: {gender_acc}%, age acc: {age_acc}%")
+            print(f"[val epoch={i+1}] loss: {l}, gender acc: {gender_acc}%, age acc: {age_acc}%")
 
     def evaluate_influence_sample(self, train, test):
         train_dataset = PrDataset(train, self.vocabulary, args.seq_len)
@@ -204,6 +237,16 @@ class PrModel:
         self.main_classifier = self.main_classifier.cpu()
         print("config: ", config)
         pif.calc_all_grad_then_test(config, self.main_classifier, train_dataloader, test_dataloader)
+        
+    def add_gradient_noise(self):
+        for p in self.main_classifier.parameters():
+            noise = np.random.laplace(loc=0, scale=1, size = p.grad.shape)
+            p.grad += torch.from_numpy(noise).to(self.device)
+        
+    def add_loss_noise(self):
+        noise = np.random.laplace(loc=0, scale=1, size = 1)[0]
+#         loss += noise
+        return noise
 
 
 def main(args):
@@ -233,7 +276,8 @@ def main(args):
     
     mod.train_main(train, dev)
     mod.train_adversarial(train, dev)
-    mod.evaluate_influence_sample(train, test)
+    if args.is_influence_sample:
+        mod.evaluate_influence_sample(train, test)
     
 
 
@@ -261,9 +305,9 @@ if __name__ == "__main__":
 
     parser.add_argument("dataset", default="tp_fr", choices=["tp_fr", "tp_de", "tp_dk", "tp_us", "tp_uk", "bl"], help="Dataset. tp=trustpilot, bl=blog")
     
-    parser.add_argument("--learning-rate", "-b", type=float, default=1e-4, help="Learning rate")
+    parser.add_argument("--learning-rate", "-b", type=float, default=1e-3, help="Learning rate")
     parser.add_argument("--batch-size", type=int, default=256, help="Batch size")
-    parser.add_argument("--iterations", "-i", type=int, default=5, help="Number of training iterations")
+    parser.add_argument("--iterations", "-i", type=int, default=15, help="Number of training iterations")
     
     parser.add_argument("--seq_len", "-sl", type=int, default=75, help="Length of sequence")
 
@@ -276,6 +320,10 @@ if __name__ == "__main__":
     parser.add_argument("--fc-dim","-l", type=int, default=50, help="Dimension of hidden layers")
     
     parser.add_argument("--device", '-device', type=str, default='cpu', help="Training device")
+    
+    parser.add_argument("--is-add-loss-noise", action="store_true", help="Add noise to loss, [default=false]")
+    parser.add_argument("--is-add-gradient-noise", action="store_true", help="Add noise to gradient, [default=false]")
+    parser.add_argument("--is-influence-sample", action="store_true", help="Evaluate influence, [default=false]")
     
     args = parser.parse_args()
 
