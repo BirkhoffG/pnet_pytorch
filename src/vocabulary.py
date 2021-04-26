@@ -55,11 +55,17 @@ class Vocabulary:
         return [self.code_word(w, stochastic_replacement) for w in sentence]
 
     def code_sentence_cw(self, sentence, stochastic_replacement=False):
-        return (
+        return      (
             [self.code_chars(w) for w in sentence],
             [self.code_word(w, stochastic_replacement) for w in sentence],
         )
-
+    
+    def code_sentence_c(self, sentence, stochastic_replacement=False):
+        output = []
+        for w in sentence:
+            output.extend(self.code_chars(w))
+        return output
+    
     def code_word(self, w, stochastic_replacement=False):
         if w in {PAD, START, STOP, UNDEF, UNK}:
             return self.w2i[w]
@@ -78,7 +84,8 @@ class Vocabulary:
     def code_chars(self, w):
         if w in {PAD, START, STOP, UNDEF, UNK}:
             return [UNDEF_I]
-        return [self.c2i[c] if c in self.c2i else UNK_I for c in [START] + list(w) + [STOP]]
+        return [self.c2i[c] if c in self.c2i else UNK_I for c in list(w)]
+        #return [self.c2i[c] if c in self.c2i else UNK_I for c in [START] + list(w) + [STOP]]
 
     def size_words(self):
         return len(self.words)
