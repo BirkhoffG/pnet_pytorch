@@ -28,12 +28,16 @@ from sklearn.utils import shuffle
 #         self.dataset = shuffle(self.dataset)
 
 class PrDataset(Dataset):
-    def __init__(self, examples: List[Example], voc: Vocabulary, seq_len) -> None:
+    def __init__(self, examples: List[Example], voc: Vocabulary, args) -> None:
         super().__init__()
         self.vocabulary = voc
         self.dataset = examples
-        self.seq_len = seq_len
-
+        self.use_char_lstm = args.use_char_lstm
+        if args.use_char_lstm:
+            self.seq_len = args.char_seq_len 
+        else:
+            self.seq_len = args.seq_len
+#         print('self.seq_len',self.seq_len)
     def _get_input(self, sentence):
         return self.vocabulary.code_sentence_cw(sentence)
 
@@ -41,9 +45,12 @@ class PrDataset(Dataset):
         # TODO: padding the training sequences
         example = self.dataset[index]
         sentence = example.get_sentence()
-        sentence = sentence[:self.seq_len]
-        sentence = sentence + ['<PAD>' for _ in range(0, self.seq_len-len(sentence))]
-        input_vec = self.vocabulary.code_sentence_w(sentence)
+        if self.use_char_lstm:
+            input_vec = self.vocabulary.code_sentence_c(sentence)
+        else:
+            input_vec = self.vocabulary.code_sentence_w(sentence)
+        input_vec = input_vec[:self.seq_len]
+        input_vec = input_vec + [0 for _ in range(0, self.seq_len-len(input_vec))]
         target = example.get_label()
         return torch.tensor(input_vec), torch.tensor([target])
     
@@ -54,11 +61,16 @@ class PrDataset(Dataset):
         self.dataset = shuffle(self.dataset)
 
 class AttackDataset(Dataset):
-    def __init__(self, examples: List[Example], voc: Vocabulary, seq_len, output_size) -> None:
+    def __init__(self, examples: List[Example], voc: Vocabulary, args, output_size) -> None:
         super().__init__()
         self.vocabulary = voc
         self.dataset = examples
-        self.seq_len = seq_len
+        self.use_char_lstm = args.use_char_lstm
+        if args.use_char_lstm:
+            self.seq_len = args.char_seq_len 
+        else:
+            self.seq_len = args.seq_len
+            
         self.output_size = output_size
     def _get_input(self, sentence):
         return self.vocabulary.code_sentence_cw(sentence)
@@ -67,9 +79,13 @@ class AttackDataset(Dataset):
         # TODO: padding the training sequences
         example = self.dataset[index]
         sentence = example.get_sentence()
-        sentence = sentence[:self.seq_len]
-        sentence = sentence + ['<PAD>' for _ in range(0, self.seq_len-len(sentence))]
-        input_vec = self.vocabulary.code_sentence_w(sentence)
+        if self.use_char_lstm:
+            input_vec = self.vocabulary.code_sentence_c(sentence)
+        else:
+            input_vec = self.vocabulary.code_sentence_w(sentence)
+        input_vec = input_vec[:self.seq_len]
+        input_vec = input_vec + [0 for _ in range(0, self.seq_len-len(input_vec))]
+        
         target = list(example.get_aux_labels())
 #         print('target',target)
         target = [1 if i in target else 0 for i in range(self.output_size)]
