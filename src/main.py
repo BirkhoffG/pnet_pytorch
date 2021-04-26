@@ -97,8 +97,9 @@ class PrModel:
         batch_size = self.args.batch_size
         device = self.device
         
-        train_dataset = PrDataset(train, self.vocabulary, self.args)
-        val_dataset = PrDataset(dev, self.vocabulary, self.args)
+
+        train_dataset = PrDataset(train, self.vocabulary, self.args.seq_len)
+        val_dataset = PrDataset(dev, self.vocabulary, self.args.seq_len)
 
         if self.args.is_add_gradient_noise:
             optimizer = optim.DPAdam(
