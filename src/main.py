@@ -40,6 +40,9 @@ def get_aux_labels(examples):
             labels.add(l)
     return labels
 
+def _to_device(*tensors, device: str):
+    return tuple(tensor.to(device) for tensor in tensors)
+
 
 class PrModel:
     def __init__(self, args, vocabulary: Vocabulary, classifier_output_size: int, adversary_output_size: int) -> None:
@@ -57,9 +60,31 @@ class PrModel:
             self.main_classifier.hidden_size, 
             output_size=adversary_output_size, args=args
             ).to(self.device)
+        
+        # adversarial training
+        self.discriminator = AdversaryClassifier(
+            self.main_classifier.hidden_size, 
+            output_size=adversary_output_size, args=args
+            ).to(self.device)
+
+        if self.args.atraining:
+            self.a_optimizer = optim.Adam(self.discriminator.parameters(), lr=args.learning_rate)
     
     def get_input(self, example: Example, adversarial=False):
         return self.vocabulary.code_sentence_cw(example.get_sentence(), adversarial=adversarial)
+    
+    def discriminator_train(self, hidden_state, target):
+        # change device
+        hidden_state, fake_labels = _to_device(hidden_state, target, device=self.device)
+
+        fake_labels = ~target
+        fake_loss = self.discriminator.get_loss(hidden_state, fake_labels)
+        # fake_loss.backward()
+
+        # self.a_optimizer.step()
+        # self.a_optimizer.zero_grad()
+
+        return fake_loss#.item()
 
     def evaluate_main(self, dataset):
         self.main_classifier.eval()
@@ -69,7 +94,7 @@ class PrModel:
         acc = 0
         tot = 0#len(dataset)
         with torch.no_grad():
-            for i, (input_vec, target) in enumerate(dataset):
+            for i, (input_vec, aux, target) in enumerate(dataset):
                 input_vec = input_vec.to(device)
                 target = target.to(device)
                 l, predicts = self.main_classifier.get_loss_prediction(input_vec, target)
@@ -86,14 +111,15 @@ class PrModel:
         lr = self.args.learning_rate
         batch_size = self.args.batch_size
         device = self.device
+        output_size = self.adversary_classifier.output_size
         
-        train_dataset = PrDataset(train, self.vocabulary, self.args.seq_len)
-        val_dataset = PrDataset(dev, self.vocabulary, self.args.seq_len)
+        train_dataset = PrDataset(train, self.vocabulary, self.args.seq_len, aux_size=output_size)
+        val_dataset = PrDataset(dev, self.vocabulary, self.args.seq_len, aux_size=output_size)
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
         
-        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
+        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
 
-        optimizer = optim.AdamW(self.main_classifier.parameters(), lr=lr)
+        optimizer = optim.Adam(self.main_classifier.parameters(), lr=lr)
         
         # epoch 0
         l, acc = self.evaluate_main(val_loader)
@@ -101,26 +127,29 @@ class PrModel:
 
         for i in range(self.args.iterations):
             self.main_classifier.train()
-            for _i, (input_vec, target) in enumerate(tqdm(train_loader)):
+
+            for _i, (input_vec, aux, target) in enumerate(tqdm(train_loader)):
 #                 print('input_vec',input_vec.shape)
                 # sys.stderr.write("\r{}%".format(_i / len(train_dataset) * 100))
                 input_vec = input_vec.to(device)
                 target = target.to(device)
                 loss = self.main_classifier.get_loss(input_vec, target)
-                loss.backward()
-                # mimic batchingc
-#                 if (_i + 1) % batch_size == 0:
-                optimizer.step()
-                optimizer.zero_grad()
 
                 # if self.args.ptraining:
                 #     self.privacy_train(example, train)
                 
-                # if self.args.atraining:
-                #     discriminator_loss += self.discriminator_train(example)
+                if self.args.atraining:
+                    hidden_state = self.main_classifier.get_lstm_embed(input_vec)
+                    loss += 2 * self.discriminator_train(hidden_state, aux)
+                
+                loss.backward()
+
+                optimizer.step()
+                optimizer.zero_grad()
                 
                 # if self.args.generator:
                 #     generator_loss += self.generator_train(example)
+
             l, acc = self.evaluate_main(val_loader)
             print(f"[epoch={i+1}] loss: {l}, acc: {acc}%")
             
@@ -191,8 +220,8 @@ class PrModel:
             print(f"[epoch={i+1}] loss: {l}, gender acc: {gender_acc}%, age acc: {age_acc}%")
 
     def evaluate_influence_sample(self, train, test):
-        train_dataset = PrDataset(train, self.vocabulary, args.seq_len)
-        test_dataset = PrDataset(test, self.vocabulary, args.seq_len)
+        train_dataset = PrDataset(train, self.vocabulary, args.seq_len, return_aux=False)
+        test_dataset = PrDataset(test, self.vocabulary, args.seq_len, return_aux=False)
         train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size)
         test_dataloader = DataLoader(test_dataset, batch_size=args.batch_size)
 
@@ -200,8 +229,11 @@ class PrModel:
         config['gpu'] = -1
         config['damp'] = 0.01
         config['scale'] = 1
+        config['outdir'] = "main_classifier_outdir"
         print("config: ", config)
         pif.calc_all_grad_then_test(config, self.main_classifier, train_dataloader, test_dataloader)
+        config['outdir'] = "adversarial_outdir"
+        pif.calc_all_grad_then_test(config, self.adversary_classifier, train_dataloader, test_dataloader)
 
 
 def main(args):
@@ -259,7 +291,7 @@ if __name__ == "__main__":
 
     parser.add_argument("dataset", default="tp_fr", choices=["tp_fr", "tp_de", "tp_dk", "tp_us", "tp_uk", "bl"], help="Dataset. tp=trustpilot, bl=blog")
     
-    parser.add_argument("--learning-rate", "-b", type=float, default=1e-4, help="Learning rate")
+    parser.add_argument("--learning-rate", "-b", type=float, default=1e-3, help="Learning rate")
     parser.add_argument("--batch-size", type=int, default=256, help="Batch size")
     parser.add_argument("--iterations", "-i", type=int, default=5, help="Number of training iterations")
     
@@ -274,7 +306,10 @@ if __name__ == "__main__":
     parser.add_argument("--fc-dim","-l", type=int, default=50, help="Dimension of hidden layers")
     
     parser.add_argument("--device", "-d", type=str, default='cpu', help="Training device")
-    # parser.add_argument("--dataset", '-d', choices=["ag", "dw", "tp_fr", "tp_de", "tp_dk", "tp_us", "tp_uk", "bl"], help="Dataset. tp=trustpilot, bl=blog", required=True)
+
+    parser.add_argument("--atraining", action="store_true", help="Adversarial classification defense (multidetasking)")
+    parser.add_argument("--ptraining", action="store_true", help="Declustering defense")
+    
     
     args = parser.parse_args()
 
