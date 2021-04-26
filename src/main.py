@@ -92,6 +92,7 @@ class PrModel:
         iterations = self.args.iterations
         delta = 1e-5
         
+        
         lr = self.args.learning_rate
         batch_size = self.args.batch_size
         device = self.device
@@ -107,6 +108,9 @@ class PrModel:
                 microbatch_size=microbatch_size,
                 params=self.main_classifier.parameters(),
                 lr=lr)
+            minibatch_loader, microbatch_loader = sampling.get_data_loaders(minibatch_size, microbatch_size, iterations)
+            print('Achieves ({}, {})-DP'.format(analysis.epsilon(len(train_dataset), minibatch_size, noise_multiplier,
+                    iterations, delta,), delta, ))
             train_loader = minibatch_loader(train_dataset)
             val_loader = minibatch_loader(val_dataset)
         else:
@@ -114,14 +118,14 @@ class PrModel:
             train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
             val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
             
-        minibatch_loader, microbatch_loader = sampling.get_data_loaders(minibatch_size, microbatch_size, iterations)
-        print('Achieves ({}, {})-DP'.format(analysis.epsilon(len(train_dataset), minibatch_size, noise_multiplier,
-                iterations, delta,), delta, ))
+        
 
         # epoch 0
         l, acc = self.evaluate_main(val_loader)
         print(f"[epoch=0] loss: {l}, acc: {acc}%")
 
+        best_val_loss = 1000
+        best_model = None
         for i in range(self.args.iterations):
             self.main_classifier.train()
             train_loss = 0
@@ -170,6 +174,13 @@ class PrModel:
             print(f"[train epoch={i+1}] loss: {train_loss}, acc: {train_acc}%")
             l, acc = self.evaluate_main(val_loader)
             print(f"[val epoch={i+1}] loss: {l}, acc: {acc}%")
+            
+            if l < best_val_loss:
+                best_val_loss = l.item()
+                best_model = self.main_classifier
+        self.main_classifier = best_model
+        l, acc = self.evaluate_main(val_loader)
+        print(f"[val epoch=final] loss: {l}, acc: {acc}%")
 
             
  
@@ -214,10 +225,11 @@ class PrModel:
         l, gender_acc, age_acc = self.evaluate_adversarial(val_loader)
         print(f"[epoch=0] loss: {l}, gender acc: {gender_acc}%, age acc: {age_acc}%")
 
+        best_val_loss = 1000
+        best_model = None
         self.main_classifier.eval()
         for i in range(self.args.iterations):
             self.adversary_classifier.train()
-            self.main_classifier.eval()
             
             train_loss = 0
             train_gender_acc = 0
@@ -254,6 +266,14 @@ class PrModel:
             print(f"[train epoch={i+1}] loss: {train_loss}, gender acc: {train_gender_acc}%, age acc: {train_age_acc}%")
             l, gender_acc, age_acc = self.evaluate_adversarial(val_loader)
             print(f"[val epoch={i+1}] loss: {l}, gender acc: {gender_acc}%, age acc: {age_acc}%")
+            
+            if l < best_val_loss:
+                best_val_loss = l.item()
+                best_model = self.adversary_classifier
+                
+        self.adversary_classifier = best_model
+        l, acc = self.evaluate_main(val_loader)
+        print(f"[val epoch=final] loss: {l}, gender acc: {gender_acc}%, age acc: {age_acc}%")
 
     def evaluate_influence_sample(self, train, test):
         train_dataset = PrDataset(train, self.vocabulary, args.seq_len)
