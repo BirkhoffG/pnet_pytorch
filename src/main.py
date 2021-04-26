@@ -31,15 +31,28 @@ def extract_vocabulary(dataset, add_symbols=None):
 
 
 def get_classifier_labels(dataset):
-    return set([data.get_label() for data in dataset])
+    labels = []
+    for data in dataset:
+        labels.append(data.get_label())
+    for label in list(set(labels)):
+        print(f'label ({label}) ratio: ',round(labels.count(label)/len(labels), 3))
+    return set(labels)
 
 
 def get_aux_labels(examples):
-    labels = set()
+    label_1s = []#set()
+    label_2s = []
     for ex in examples:
-        for l in ex.get_aux_labels():
-            labels.add(l)
-    return labels
+        target = list(ex.get_aux_labels())
+        target = [1 if i in target else 0 for i in range(2)]
+        label_1s.append(target[0])
+        label_2s.append(target[1])
+    for label in list(set(label_1s)):
+        print(f'gender label ({label}) ratio: ',round(label_1s.count(label)/len(label_1s), 3))
+    for label in list(set(label_2s)):
+        print(f'age label ({label}) ratio: ',round(label_2s.count(label)/len(label_2s), 3))
+    all_labels = label_1s + label_2s
+    return set(all_labels)
 
 
 class PrModel:
@@ -61,7 +74,20 @@ class PrModel:
     
     def get_input(self, example: Example, adversarial=False):
         return self.vocabulary.code_sentence_cw(example.get_sentence(), adversarial=adversarial)
-
+    
+    def make_weights_for_balanced_classes(self, datasets):
+        labels = []
+        for _, target in datasets:
+            labels.append(target.item())     
+        counts = []
+        for label in list(set(labels)):
+            counts.append(labels.count(label))
+        weight = []
+        total = sum(counts)
+        for count in counts:
+            weight.append(1/count)  
+        return weight
+    
     def evaluate_main(self, dataset):
         self.main_classifier.eval()
         device = self.device
@@ -74,6 +100,7 @@ class PrModel:
                 input_vec = input_vec.to(device)
                 target = target.to(device)
                 l, predicts = self.main_classifier.get_loss_prediction(input_vec, target)
+#                 print('predicts',predicts)
                 loss += l.item()
                 for p, t in zip(predicts, target):
                     tot += 1
@@ -82,14 +109,13 @@ class PrModel:
 #                 print(acc, tot)
         return (loss / tot), round(acc / tot  * 100, 3)
 
-
     def train_main(self, train, dev):
         
         l2_norm_clip = 1.0
         noise_multiplier = 1.1
         minibatch_size = self.args.batch_size
         microbatch_size = 1
-        iterations = self.args.iterations
+        iterations = 100#int(len(train_dataset)/self.args.batch_size)
         delta = 1e-5
         
         
@@ -100,6 +126,10 @@ class PrModel:
         train_dataset = PrDataset(train, self.vocabulary, self.args)
         val_dataset = PrDataset(dev, self.vocabulary, self.args)
 
+        weights = self.make_weights_for_balanced_classes(train_dataset)
+        weights = torch.DoubleTensor(weights)   
+        sampler = torch.utils.data.sampler.WeightedRandomSampler(weights, len(train_dataset))  
+        
         if self.args.is_add_gradient_noise:
             optimizer = optim.DPAdam(
                 l2_norm_clip=l2_norm_clip,
@@ -110,13 +140,13 @@ class PrModel:
                 lr=lr)
             minibatch_loader, microbatch_loader = sampling.get_data_loaders(minibatch_size, microbatch_size, iterations)
             print('Achieves ({}, {})-DP'.format(analysis.epsilon(len(train_dataset), minibatch_size, noise_multiplier,
-                    iterations, delta,), delta, ))
+                    iterations, delta,), delta))
             train_loader = minibatch_loader(train_dataset)
 #             val_loader = minibatch_loader(val_dataset)
         else:
             optimizer = optim.Adam(self.main_classifier.parameters(), lr=lr)
-            train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
-        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
+            train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False, num_workers=0, sampler = sampler)
+        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
             
         
 
@@ -131,6 +161,7 @@ class PrModel:
             train_loss = 0
             train_acc = 0
             train_tot = 0
+            loss = 0
             for _i, (input_vec, target) in enumerate(tqdm(train_loader)):
                 optimizer.zero_grad()
                 
@@ -148,10 +179,13 @@ class PrModel:
                             train_acc += 1
                     optimizer.step()
                 else:
+                    
                     input_vec = input_vec.to(device)
                     target = target.to(device)
                     loss, predicts = self.main_classifier.get_loss_prediction(input_vec, target)
+#                     loss = loss * 0 + 1
                     train_loss += loss.item()
+                    
                     if self.args.is_add_loss_noise:  
                         loss = loss + self.add_loss_noise() #add noise before backward
                     loss.backward()  
@@ -171,6 +205,7 @@ class PrModel:
             #     generator_loss += self.generator_train(example)
 
             train_acc = round(train_acc / train_tot  * 100, 3)
+            train_loss = train_loss / train_tot
             print(f"[train epoch={i+1}] loss: {train_loss}, acc: {train_acc}%")
             l, acc = self.evaluate_main(val_loader)
             print(f"[val epoch={i+1}] loss: {l}, acc: {acc}%")
@@ -182,6 +217,7 @@ class PrModel:
         self.main_classifier = best_model
         l, acc = self.evaluate_main(val_loader)
         print(f"[val epoch=final] loss: {l}, acc: {acc}%")
+        return best_model
 
             
  
@@ -199,6 +235,7 @@ class PrModel:
                 target = target.to(device)
                 hidden_state = self.main_classifier.get_lstm_embed(input_vec)
                 l, predicts = self.adversary_classifier.get_loss_prediction(hidden_state, target)
+#                 print('predicts',predicts)
                 loss += l.item()
                 for p, t in zip(predicts, target):
                     tot += 1
@@ -217,8 +254,9 @@ class PrModel:
         
         train_dataset = AttackDataset(train, self.vocabulary, self.args, output_size)
         val_dataset = AttackDataset(dev, self.vocabulary, self.args, output_size)
-        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
-        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
+        
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
+        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
         
         optimizer = optim.Adam(self.adversary_classifier.parameters(), lr=lr)
 
@@ -229,6 +267,8 @@ class PrModel:
         best_val_loss = 1000
         best_model = None
         self.main_classifier.eval()
+        
+        
         for i in range(self.args.iterations):
             self.adversary_classifier.train()
             
@@ -236,13 +276,14 @@ class PrModel:
             train_gender_acc = 0
             train_age_acc = 0
             train_tot = 0
-            
+            loss = 0
             for _i, (input_vec, target) in enumerate(tqdm(train_loader)):
                 input_vec = input_vec.to(device)
                 target = target.to(device)
                 hidden_state = self.main_classifier.get_lstm_embed(input_vec)
                 hidden_state = hidden_state.detach()
                 loss, predicts = self.adversary_classifier.get_loss_prediction(hidden_state, target)
+#                 loss = loss * 0 + 1
                 loss.backward()
                 optimizer.step()
                 optimizer.zero_grad()
@@ -264,6 +305,7 @@ class PrModel:
                 #     generator_loss += self.generator_train(example)
             train_gender_acc = round(train_gender_acc / train_tot  * 100, 3)
             train_age_acc = round(train_age_acc / train_tot  * 100, 3)
+            train_loss = train_loss / train_tot
             print(f"[train epoch={i+1}] loss: {train_loss}, gender acc: {train_gender_acc}%, age acc: {train_age_acc}%")
             l, gender_acc, age_acc = self.evaluate_adversarial(val_loader)
             print(f"[val epoch={i+1}] loss: {l}, gender acc: {gender_acc}%, age acc: {age_acc}%")
@@ -276,6 +318,7 @@ class PrModel:
         self.adversary_classifier = best_model
         l, gender_acc, age_acc = self.evaluate_adversarial(val_loader)
         print(f"[val epoch=final] loss: {l}, gender acc: {gender_acc}%, age acc: {age_acc}%")
+        return best_model
 
     def evaluate_influence_sample(self, train, test):
         train_dataset = PrDataset(train, self.vocabulary, self.args)
@@ -328,8 +371,8 @@ def main(args):
 
     mod = PrModel(args, vocabulary, classifier_output_size, adversary_output_size)
     
-    mod.train_main(train, dev)
-    mod.train_adversarial(train, dev)
+    best_main_model = mod.train_main(train, dev)
+    best_adv_model = mod.train_adversarial(train, dev)
     if args.is_influence_sample:
         mod.evaluate_influence_sample(train, test)
     
@@ -359,9 +402,9 @@ if __name__ == "__main__":
 
     parser.add_argument("dataset", default="tp_fr", choices=["tp_fr", "tp_de", "tp_dk", "tp_us", "tp_uk", "bl"], help="Dataset. tp=trustpilot, bl=blog")
     
-    parser.add_argument("--learning-rate", "-b", type=float, default=1e-3, help="Learning rate")
+    parser.add_argument("--learning-rate", "-b", type=float, default=1e-4, help="Learning rate")
     parser.add_argument("--batch-size", type=int, default=256, help="Batch size")
-    parser.add_argument("--iterations", "-i", type=int, default=10, help="Number of training iterations")
+    parser.add_argument("--iterations", "-i", type=int, default=15, help="Number of training iterations")
     
     parser.add_argument("--seq_len", "-sl", type=int, default=75, help="Length of word sequence")
     parser.add_argument("--char_seq_len", "-csl", type=int, default=500, help="Length of character sequence")
