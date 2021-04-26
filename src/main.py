@@ -122,7 +122,7 @@ class PrModel:
                 # if self.args.generator:
                 #     generator_loss += self.generator_train(example)
             l, acc = self.evaluate_main(val_loader)
-            print(f"[epoch={i+1}] loss: {l}, acc: {acc}")
+            print(f"[epoch={i+1}] loss: {l}, acc: {acc}%")
             
  
     def evaluate_adversarial(self, dataset):
@@ -166,13 +166,14 @@ class PrModel:
         l, gender_acc, age_acc = self.evaluate_adversarial(val_loader)
         print(f"[epoch=0] loss: {l}, gender acc: {gender_acc}%, gender acc: {age_acc}%")
 
+        self.main_classifier.eval()
         for i in range(self.args.iterations):
             self.adversary_classifier.train()
-            self.main_classifier.train()
             for _i, (input_vec, target) in enumerate(tqdm(train_loader)):
                 input_vec = input_vec.to(device)
                 target = target.to(device)
                 hidden_state = self.main_classifier.get_lstm_embed(input_vec)
+                hidden_state = hidden_state.detach()
                 loss = self.adversary_classifier.get_loss(hidden_state, target)
                 loss.backward()
                 optimizer.step()
@@ -190,8 +191,8 @@ class PrModel:
             print(f"[epoch={i+1}] loss: {l}, gender acc: {gender_acc}%, age acc: {age_acc}%")
 
     def evaluate_influence_sample(self, train, test):
-        train_dataset = PrDataset(train, self.vocabulary, args)
-        test_dataset = PrDataset(test, self.vocabulary, args)
+        train_dataset = PrDataset(train, self.vocabulary, args.seq_len)
+        test_dataset = PrDataset(test, self.vocabulary, args.seq_len)
         train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size)
         test_dataloader = DataLoader(test_dataset, batch_size=args.batch_size)
 
@@ -228,8 +229,8 @@ def main(args):
 
     mod = PrModel(args, vocabulary, classifier_output_size, adversary_output_size)
     
-    mod.train_main(train, dev)
-    mod.train_adversarial(train, dev)
+    # mod.train_main(train, dev)
+    # mod.train_adversarial(train, dev)
     mod.evaluate_influence_sample(train, test)
     
 
@@ -258,8 +259,8 @@ if __name__ == "__main__":
 
     parser.add_argument("dataset", default="tp_fr", choices=["tp_fr", "tp_de", "tp_dk", "tp_us", "tp_uk", "bl"], help="Dataset. tp=trustpilot, bl=blog")
     
-    parser.add_argument("--learning-rate", "-b", type=float, default=1e-4)
-    parser.add_argument("--batch-size", type=int, default=256)
+    parser.add_argument("--learning-rate", "-b", type=float, default=1e-4, help="Learning rate")
+    parser.add_argument("--batch-size", type=int, default=256, help="Batch size")
     parser.add_argument("--iterations", "-i", type=int, default=5, help="Number of training iterations")
     
     parser.add_argument("--seq_len", "-sl", type=int, default=75, help="Length of sequence")
@@ -272,8 +273,8 @@ if __name__ == "__main__":
 
     parser.add_argument("--fc-dim","-l", type=int, default=50, help="Dimension of hidden layers")
     
-    parser.add_argument("--device", "-d", type=str, default='cpu', help="Length of sequence")
-    parser.add_argument("--dataset", '-d', choices=["ag", "dw", "tp_fr", "tp_de", "tp_dk", "tp_us", "tp_uk", "bl"], help="Dataset. tp=trustpilot, bl=blog", required=True)
+    parser.add_argument("--device", "-d", type=str, default='cpu', help="Training device")
+    # parser.add_argument("--dataset", '-d', choices=["ag", "dw", "tp_fr", "tp_de", "tp_dk", "tp_us", "tp_uk", "bl"], help="Dataset. tp=trustpilot, bl=blog", required=True)
     
     args = parser.parse_args()
 
