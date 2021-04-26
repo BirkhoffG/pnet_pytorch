@@ -15,7 +15,8 @@ import numpy as np
 from sklearn.metrics import f1_score
 
 import pytorch_influence_functions as pif
-
+from pyvacy import optim, analysis, sampling
+from torch.utils.data import DataLoader, TensorDataset
 
 def extract_vocabulary(dataset, add_symbols=None):
     freqs = defaultdict(int)
@@ -83,18 +84,40 @@ class PrModel:
 
 
     def train_main(self, train, dev):
+        
+        l2_norm_clip = 1.0
+        noise_multiplier = 1.1
+        minibatch_size = self.args.batch_size
+        microbatch_size = 1
+        iterations = self.args.iterations
+        delta = 1e-5
+        
         lr = self.args.learning_rate
         batch_size = self.args.batch_size
         device = self.device
         
         train_dataset = PrDataset(train, self.vocabulary, self.args.seq_len)
         val_dataset = PrDataset(dev, self.vocabulary, self.args.seq_len)
-        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
-        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
 
-        optimizer = optim.AdamW(self.main_classifier.parameters(), lr=lr)
-#         optimizer = optim.SGD(self.main_classifier.parameters(), lr=lr)
-        
+        if self.args.is_add_gradient_noise:
+            optimizer = optim.DPAdam(
+                l2_norm_clip=l2_norm_clip,
+                noise_multiplier=noise_multiplier,
+                minibatch_size=minibatch_size,
+                microbatch_size=microbatch_size,
+                params=self.main_classifier.parameters(),
+                lr=lr)
+            train_loader = minibatch_loader(train_dataset)
+            val_loader = minibatch_loader(val_dataset)
+        else:
+            optimizer = optim.Adam(self.main_classifier.parameters(), lr=lr)
+            train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
+            val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
+            
+        minibatch_loader, microbatch_loader = sampling.get_data_loaders(minibatch_size, microbatch_size, iterations)
+        print('Achieves ({}, {})-DP'.format(analysis.epsilon(len(train_dataset), minibatch_size, noise_multiplier,
+                iterations, delta,), delta, ))
+
         # epoch 0
         l, acc = self.evaluate_main(val_loader)
         print(f"[epoch=0] loss: {l}, acc: {acc}%")
@@ -105,40 +128,49 @@ class PrModel:
             train_acc = 0
             train_tot = 0
             for _i, (input_vec, target) in enumerate(tqdm(train_loader)):
-#                 print('input_vec',input_vec.shape)
-                # sys.stderr.write("\r{}%".format(_i / len(train_dataset) * 100))            
-                input_vec = input_vec.to(device)
-                target = target.to(device)
-                loss, predicts = self.main_classifier.get_loss_prediction(input_vec, target)
-                
-                if self.args.is_add_loss_noise:  
-                    loss = loss + self.add_loss_noise() #add noise before backward
-                loss.backward()              
-                if self.args.is_add_gradient_noise:  
-                    self.add_gradient_noise() #add noise after gradient is calculated. 
-                    
-                optimizer.step()
                 optimizer.zero_grad()
                 
-                train_loss += loss.item()
-                for p, t in zip(predicts, target):
-                    train_tot += 1
-                    if p.item() == t.item():
-                        train_acc += 1
-                        
-                # if self.args.ptraining:
-                #     self.privacy_train(example, train)
-                
-                # if self.args.atraining:
-                #     discriminator_loss += self.discriminator_train(example)
-                
-                # if self.args.generator:
-                #     generator_loss += self.generator_train(example)
+                if self.args.is_add_gradient_noise:
+                    for X_microbatch, y_microbatch  in microbatch_loader(TensorDataset(input_vec, target)):
+                        optimizer.zero_microbatch_grad()
+                        X_microbatch = X_microbatch.to(device)
+                        y_microbatch = y_microbatch.to(device)
+                        loss, predicts = self.main_classifier.get_loss_prediction(X_microbatch, y_microbatch)
+                        loss.backward()
+                        optimizer.microbatch_step()
+                        train_loss += loss.item()
+                        train_tot += 1
+                        if predicts[0].item() == y_microbatch[0].item():
+                            train_acc += 1
+                    optimizer.step()
+                else:
+                    input_vec = input_vec.to(device)
+                    target = target.to(device)
+                    loss, predicts = self.main_classifier.get_loss_prediction(input_vec, target)
+                    train_loss += loss.item()
+                    if self.args.is_add_loss_noise:  
+                        loss = loss + self.add_loss_noise() #add noise before backward
+                    loss.backward()  
+                    for p, t in zip(predicts, target):
+                        train_tot += 1
+                        if predicts[0].item() == target[0].item():
+                            train_acc += 1
+                    optimizer.step()
+            
+            # if self.args.ptraining:
+            #     self.privacy_train(example, train)
+
+            # if self.args.atraining:
+            #     discriminator_loss += self.discriminator_train(example)
+
+            # if self.args.generator:
+            #     generator_loss += self.generator_train(example)
+
             train_acc = round(train_acc / train_tot  * 100, 3)
             print(f"[train epoch={i+1}] loss: {train_loss}, acc: {train_acc}%")
-            
             l, acc = self.evaluate_main(val_loader)
             print(f"[val epoch={i+1}] loss: {l}, acc: {acc}%")
+
             
  
     def evaluate_adversarial(self, dataset):
@@ -176,7 +208,7 @@ class PrModel:
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
         val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
         
-        optimizer = optim.AdamW(self.adversary_classifier.parameters(), lr=lr)
+        optimizer = optim.Adam(self.adversary_classifier.parameters(), lr=lr)
 
         # epoch 0
         l, gender_acc, age_acc = self.evaluate_adversarial(val_loader)
@@ -329,3 +361,49 @@ if __name__ == "__main__":
 
     main(args)
 
+#=====dead kitten======#
+#         else:
+#             
+# #             optimizer = optim.AdamW(self.main_classifier.parameters(), lr=lr)
+            
+#             # epoch 0
+#             l, acc = self.evaluate_main(val_loader)
+#             print(f"[epoch=0] loss: {l}, acc: {acc}%")
+
+#             for i in range(self.args.iterations):
+#                 self.main_classifier.train()
+#                 train_loss = 0
+#                 train_acc = 0
+#                 train_tot = 0
+#                 for _i, (input_vec, target) in enumerate(tqdm(train_loader)):            
+#                     input_vec = input_vec.to(device)
+#                     target = target.to(device)
+#                     loss, predicts = self.main_classifier.get_loss_prediction(input_vec, target)
+#                     train_loss += loss.item()
+
+#                     if self.args.is_add_loss_noise:  
+#                         loss = loss + self.add_loss_noise() #add noise before backward
+                        
+#                     loss.backward()  
+# #                     if self.args.is_add_gradient_noise:  
+# #                         self.add_gradient_noise() #add noise after gradient is calculated. 
+#                     for p, t in zip(predicts, target):
+#                         train_tot += 1
+#                         if predicts[0].item() == target[0].item():
+#                             train_acc += 1
+#                     optimizer.step()
+#                     optimizer.zero_grad()
+
+#                 # if self.args.ptraining:
+#                 #     self.privacy_train(example, train)
+                
+#                 # if self.args.atraining:
+#                 #     discriminator_loss += self.discriminator_train(example)
+                
+#                 # if self.args.generator:
+#                 #     generator_loss += self.generator_train(example)
+#                 train_acc = round(train_acc / train_tot  * 100, 3)
+#                 print(f"[train epoch={i+1}] loss: {train_loss}, acc: {train_acc}%")
+
+#                 l, acc = self.evaluate_main(val_loader)
+#                 print(f"[val epoch={i+1}] loss: {l}, acc: {acc}%")
